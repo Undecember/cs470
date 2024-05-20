@@ -1,3 +1,5 @@
+pub mod sampling;
+
 use anyhow::{Error as E, Result};
 
 use hf_hub::{api::sync::Api, Repo, RepoType};
@@ -30,7 +32,8 @@ impl T5Model {
         seed: u64,
         repeat_penalty: f32,
     ) -> Result<(Self, Tokenizer)> {
-        let repo = Repo::with_revision(model_repo.clone(), RepoType::Model, model_revision);
+        let repo =
+            Repo::with_revision(model_repo.clone(), RepoType::Model, model_revision);
         let api = Api::new()?;
         let repo = api.repo(repo);
         let config_filename = repo.get("config.json")?;
@@ -45,8 +48,9 @@ impl T5Model {
         } else {
             Device::new_cuda(0).map_err(E::msg)?
         };
-        let vb =
-            unsafe { VarBuilder::from_mmaped_safetensors(&weights_filename, DType::F32, &device)? };
+        let vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(&weights_filename, DType::F32, &device)?
+        };
         let model = t5::T5ForConditionalGeneration::load(vb, &config)?;
 
         Ok((

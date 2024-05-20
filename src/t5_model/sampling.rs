@@ -1,4 +1,4 @@
-use super::builder::T5Model;
+use super::T5Model;
 use anyhow::Result;
 use candle_core::Tensor;
 use candle_transformers::generation::LogitsProcessor;
@@ -33,7 +33,8 @@ impl T5Model {
         let mut output_tokens = [self
             .config
             .decoder_start_token_id
-            .unwrap_or(self.config.pad_token_id) as u32]
+            .unwrap_or(self.config.pad_token_id)
+            as u32]
         .to_vec();
         let mut logits_processor =
             LogitsProcessor::new(self.seed, Some(self.temperature), self.top_p);

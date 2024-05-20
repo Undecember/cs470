@@ -1,7 +1,7 @@
 use anyhow::{Error as E, Result};
 use clap::{Parser, ValueEnum};
 use colored::Colorize;
-use cs470::t5_model::builder::T5Model;
+use cs470::t5_model::T5Model;
 use log::info;
 
 #[derive(Clone, Debug, Copy, ValueEnum)]
@@ -86,8 +86,10 @@ fn main() -> Result<()> {
         args.top_p.map_or("None".to_string(), |p| p.to_string())
     );
 
-    let (draft_model_repo, draft_model_revision) = whichmodel_to_repo(args.draft_model_repo);
-    let (target_model_repo, target_model_revision) = whichmodel_to_repo(args.target_model_repo);
+    let (draft_model_repo, draft_model_revision) =
+        whichmodel_to_repo(args.draft_model_repo);
+    let (target_model_repo, target_model_revision) =
+        whichmodel_to_repo(args.target_model_repo);
 
     info!("Loading draft model {}...", draft_model_repo.bold());
     let (mut draft_model, _) = T5Model::load(
@@ -127,7 +129,8 @@ fn main() -> Result<()> {
     info!("Start generating.");
     info!("[ {} ]\n", "Draft only".bold());
     let result = draft_model.single_sampling(&tokens, args.max_tokens)?;
-    let dur = result.timings_report[result.timings_report.len() - 1].0 - result.timings_report[0].0;
+    let dur = result.timings_report[result.timings_report.len() - 1].0
+        - result.timings_report[0].0;
     info!(
         "Generation speed : {:.3} ms/tokens",
         dur.as_millis() as f64 / result.output_tokens.len() as f64
@@ -142,7 +145,8 @@ fn main() -> Result<()> {
 
     info!("[ {} ]\n", "Target only".bold());
     let result = target_model.single_sampling(&tokens, args.max_tokens)?;
-    let dur = result.timings_report[result.timings_report.len() - 1].0 - result.timings_report[0].0;
+    let dur = result.timings_report[result.timings_report.len() - 1].0
+        - result.timings_report[0].0;
     info!(
         "Generation speed : {:.3} ms/tokens",
         dur.as_millis() as f64 / result.output_tokens.len() as f64
