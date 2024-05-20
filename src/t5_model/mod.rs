@@ -2,6 +2,7 @@ pub mod sampling;
 
 use anyhow::{Error as E, Result};
 
+use crate::cmd_args::Args;
 use hf_hub::{api::sync::Api, Repo, RepoType};
 
 use tokenizers::Tokenizer;
@@ -22,15 +23,10 @@ pub struct T5Model {
 }
 
 impl T5Model {
-    pub fn load(
+    pub fn new(
         model_repo: String,
         model_revision: String,
-        no_kv_cache: bool,
-        temperature: f64,
-        cpu: bool,
-        top_p: Option<f64>,
-        seed: u64,
-        repeat_penalty: f32,
+        args: &Args,
     ) -> Result<(Self, Tokenizer)> {
         let repo =
             Repo::with_revision(model_repo.clone(), RepoType::Model, model_revision);
@@ -41,9 +37,9 @@ impl T5Model {
         let weights_filename = vec![repo.get("model.safetensors")?];
         let config = std::fs::read_to_string(config_filename)?;
         let mut config: t5::Config = serde_json::from_str(&config)?;
-        config.use_cache = !no_kv_cache;
+        config.use_cache = !args.no_kv_cache;
         let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
-        let device = if cpu {
+        let device = if args.cpu {
             Device::Cpu
         } else {
             Device::new_cuda(0).map_err(E::msg)?
@@ -58,10 +54,10 @@ impl T5Model {
                 model,
                 device,
                 config,
-                temperature,
-                top_p,
-                seed,
-                repeat_penalty,
+                temperature: args.temperature,
+                top_p: args.top_p,
+                seed: args.seed,
+                repeat_penalty: args.repeat_penalty,
             },
             tokenizer,
         ))
