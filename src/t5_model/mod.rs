@@ -13,13 +13,13 @@ use candle_transformers::models::t5;
 use t5::T5ForConditionalGeneration as T5ModelCG;
 
 pub struct T5Model {
-    pub model: T5ModelCG,
-    pub device: Device,
-    pub config: t5::Config,
-    pub temperature: f64,
-    pub top_p: Option<f64>,
-    pub seed: u64,
-    pub repeat_penalty: f32,
+    model: T5ModelCG,
+    device: Device,
+    config: t5::Config,
+    temperature: f64,
+    top_p: Option<f64>,
+    seed: u64,
+    repeat_penalty: f32,
 }
 
 impl T5Model {
