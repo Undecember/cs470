@@ -18,36 +18,20 @@ enum WhichModel {
     T5_11B,
 }
 
-#[derive(Clone, Debug, Copy, ValueEnum)]
-enum WhichLang {
-    #[value(name = "french")]
-    French,
-    #[value(name = "german")]
-    German,
-}
-
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
+    /// Prompt to translate
+    #[arg(short = 'p', long, required = true)]
+    prompt: String,
+
     /// Target model's repository path.
-    #[arg(short = 't', long, default_value = "11b")]
+    #[arg(short = 't', long, default_value = "3b")]
     target_model_repo: WhichModel,
 
     /// Draft model's repository path.
-    #[arg(short = 'd', long, default_value = "large")]
+    #[arg(short = 'd', long, default_value = "small")]
     draft_model_repo: WhichModel,
-
-    /// Prompt to translate
-    #[arg(
-        short = 'p',
-        long,
-        default_value = "translate to German: I hate you for real."
-    )]
-    prompt: String,
-
-    /// Language to translate to.
-    #[arg(short = 'l', long, default_value = "french")]
-    to_language: WhichLang,
 
     /// Maximum number of tokens to generate
     #[arg(short = 'n', long, default_value_t = 1000)]
@@ -128,7 +112,7 @@ fn main() -> Result<()> {
         args.repeat_penalty,
     )?;
 
-    let prompt = args.prompt;
+    let prompt = format!("summarize: {}", args.prompt);
     let tokenizer = tokenizer
         .with_padding(None)
         .with_truncation(None)
