@@ -2,6 +2,7 @@ use anyhow::{Error as E, Result};
 use colored::Colorize;
 use cs470::cmd_args::{parse_args, review_args, whichmodel_to_repo};
 use cs470::t5_model::T5Model;
+use cs470::tasks::single_sampling;
 use log::info;
 
 fn main() -> Result<()> {
@@ -35,7 +36,7 @@ fn main() -> Result<()> {
 
     info!("Start generating.");
     info!("[ {} ]\n", "Draft only".bold());
-    let result = draft_model.single_sampling(&tokens, args.max_tokens)?;
+    let result = single_sampling(&mut draft_model, &tokens, args.max_tokens)?;
     let dur = result.timings_report[result.timings_report.len() - 1].0
         - result.timings_report[0].0;
     info!(
@@ -51,7 +52,7 @@ fn main() -> Result<()> {
     );
 
     info!("[ {} ]\n", "Target only".bold());
-    let result = target_model.single_sampling(&tokens, args.max_tokens)?;
+    let result = single_sampling(&mut target_model, &tokens, args.max_tokens)?;
     let dur = result.timings_report[result.timings_report.len() - 1].0
         - result.timings_report[0].0;
     info!(

@@ -14,5 +14,6 @@ crossbeam-epoch = "0.9.18"
 env_logger = "0.11.3"
 hf-hub = { version = "0.3.2", features = ["tokio"] }
 log = { version = "0.4.21", features = ["max_level_debug", "release_max_level_info"] }
+rand = "0.8.5"
 serde_json = "1.0.117"
 tokenizers = "0.19.1"

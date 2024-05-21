@@ -1,3 +1,4 @@
+pub mod logits;
 pub mod sampling;
 
 use crate::cmd_args::Args;
@@ -6,17 +7,19 @@ use candle_core::{DType, Device};
 use candle_nn::VarBuilder;
 use candle_transformers::models::t5;
 use hf_hub::{api::sync::Api, Repo, RepoType};
+use rand::SeedableRng;
 use t5::T5ForConditionalGeneration as T5ModelCG;
 use tokenizers::Tokenizer;
 
 pub struct T5Model {
-    device: Device,
-    config: t5::Config,
-    temperature: f64,
-    top_p: Option<f64>,
-    seed: u64,
-    repeat_penalty: f32,
-    cgs: Vec<T5ModelCG>,
+    pub device: Device,
+    pub rng: rand::rngs::StdRng,
+    pub config: t5::Config,
+    pub temperature: f64,
+    pub top_p: Option<f64>,
+    pub seed: u64,
+    pub repeat_penalty: f32,
+    pub cgs: Vec<T5ModelCG>,
 }
 
 impl T5Model {
@@ -49,10 +52,12 @@ impl T5Model {
             )?
         };
         let cgs = vec![T5ModelCG::load(vb, &config)?];
+        let rng = rand::rngs::StdRng::seed_from_u64(args.seed);
 
         Ok((
             Self {
                 device,
+                rng,
                 config,
                 temperature: args.temperature,
                 top_p: args.top_p,
