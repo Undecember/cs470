@@ -1,6 +1,6 @@
 [package]
 name = "cs470"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 [dependencies]
@@ -10,6 +10,7 @@ candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.5.
 candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.5.1", features = ["cuda"] }
 clap = { version = "4.5.4", features = ["derive"] }
 colored = "2.1.0"
+crossbeam-epoch = "0.9.18"
 env_logger = "0.11.3"
 hf-hub = { version = "0.3.2", features = ["tokio"] }
 log = { version = "0.4.21", features = ["max_level_debug", "release_max_level_info"] }
