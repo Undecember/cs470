@@ -2,7 +2,7 @@ use anyhow::{Error as E, Result};
 use colored::Colorize;
 use cs470::cmd_args::{parse_args, review_args, whichmodel_to_repo};
 use cs470::t5_model::T5Model;
-use cs470::tasks::single_sampling;
+use cs470::tasks::{single_sampling, speculative_sampling};
 use log::info;
 
 fn main() -> Result<()> {
@@ -53,6 +53,28 @@ fn main() -> Result<()> {
 
     info!("[ {} ]\n", "Target only".bold());
     let result = single_sampling(&mut target_model, &tokens, args.max_tokens)?;
+    let dur = result.timings_report[result.timings_report.len() - 1].0
+        - result.timings_report[0].0;
+    info!(
+        "Generation speed : {:.3} ms/tokens",
+        dur.as_millis() as f64 / result.output_tokens.len() as f64
+    );
+    info!(
+        "Generated text :\n{}",
+        tokenizer
+            .decode(&result.output_tokens, true)
+            .map_err(E::msg)?
+            .cyan()
+    );
+
+    info!("[ {} ]\n", "Speculative sampling".bold());
+    let result = speculative_sampling(
+        &mut draft_model,
+        &mut target_model,
+        args.gamma,
+        &tokens,
+        args.max_tokens,
+    )?;
     let dur = result.timings_report[result.timings_report.len() - 1].0
         - result.timings_report[0].0;
     info!(

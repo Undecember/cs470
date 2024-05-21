@@ -2,6 +2,7 @@ use super::T5Model;
 use anyhow::Result;
 use candle_core::{DType, Tensor};
 use rand::distributions::Distribution;
+use rand::Rng;
 
 impl T5Model {
     pub fn p_from_logits(&self, logits: &Tensor) -> Result<Vec<f32>> {
@@ -36,5 +37,9 @@ impl T5Model {
         let distr = rand::distributions::WeightedIndex::new(p)?;
         let next_token = distr.sample(&mut self.rng) as u32;
         Ok(next_token)
+    }
+
+    pub fn prob_test(&mut self, p: f32) -> bool {
+        self.rng.gen_bool(p as f64)
     }
 }

@@ -31,6 +31,10 @@ pub struct Args {
     #[arg(short = 'd', long, default_value = "small")]
     pub draft_model_repo: WhichModel,
 
+    /// Gamma value for speculative sampling
+    #[arg(short = 'g', long, default_value_t = 5)]
+    pub gamma: usize,
+
     /// Maximum number of tokens to generate
     #[arg(short = 'n', long, default_value_t = 1000)]
     pub max_tokens: usize,
@@ -100,4 +104,5 @@ pub fn review_args(args: &Args) {
         if args.no_kv_cache { "Not u" } else { "U" }
     );
     info!("Repeat_penalty : {:.2}", args.repeat_penalty);
+    info!("Gamma : {}", args.gamma);
 }

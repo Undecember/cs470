@@ -68,13 +68,16 @@ impl T5Model {
             tokenizer,
         ))
     }
-    pub fn init_cgs(&mut self, cnt: usize) -> Result<()> {
-        if !self.cgs.is_empty() {
-            self.cgs.drain(1..);
-        }
+
+    pub fn init_cgs(&mut self, cnt: usize) {
+        self.cgs.truncate(1);
         for _ in 1..cnt {
             self.cgs.push(self.cgs[0].clone());
         }
-        Ok(())
+    }
+
+    pub fn promote_cg(&mut self, index: usize) {
+        self.cgs.drain(..index);
+        self.cgs.truncate(1);
     }
 }
