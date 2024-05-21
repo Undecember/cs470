@@ -14,6 +14,12 @@ pub struct SamplingResult {
     pub timings_report: Vec<(Instant, TimingsReportItem)>,
 }
 
+impl Default for SamplingResult {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SamplingResult {
     pub fn new() -> Self {
         Self {
@@ -25,8 +31,8 @@ impl SamplingResult {
 
 impl T5Model {
     pub fn single_sampling(
-        self: &mut Self,
-        tokens: &Vec<u32>,
+        &mut self,
+        tokens: &[u32],
         max_tokens: usize,
     ) -> Result<SamplingResult> {
         let mut result = SamplingResult::new();
@@ -39,8 +45,8 @@ impl T5Model {
         let mut logits_processor =
             LogitsProcessor::new(self.seed, Some(self.temperature), self.top_p);
 
-        let input_tokens = Tensor::new(&tokens[..], &self.device)?.unsqueeze(0)?;
-        let encoder_output = self.model.encode(&input_tokens)?;
+        let input_tokens = Tensor::new(tokens, &self.device)?.unsqueeze(0)?;
+        let encoder_output = self.cgs[0].encode(&input_tokens)?;
         for i in 0..max_tokens {
             let decoder_tokens = if i == 0 || !self.config.use_cache {
                 Tensor::new(output_tokens.as_slice(), &self.device)?.unsqueeze(0)?
@@ -49,8 +55,7 @@ impl T5Model {
                 Tensor::new(&[last_token], &self.device)?.unsqueeze(0)?
             };
             let begin_time = Instant::now();
-            let logits = self
-                .model
+            let logits = self.cgs[0]
                 .decode(&decoder_tokens, &encoder_output)?
                 .squeeze(0)?;
             let logits = if self.repeat_penalty == 1. {

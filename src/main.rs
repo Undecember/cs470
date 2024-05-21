@@ -15,10 +15,10 @@ fn main() -> Result<()> {
     let (target_model_repo, target_model_revision) =
         whichmodel_to_repo(args.target_model_repo);
 
-    info!("Loading draft model {}...", draft_model_repo.bold());
+    info!("Loading draft model...");
     let (mut draft_model, _) =
         T5Model::new(draft_model_repo, draft_model_revision, &args)?;
-    info!("Loading target model {}...", target_model_repo.bold());
+    info!("Loading target model...");
     let (mut target_model, mut tokenizer) =
         T5Model::new(target_model_repo, target_model_revision, &args)?;
 
@@ -33,7 +33,6 @@ fn main() -> Result<()> {
         .get_ids()
         .to_vec();
 
-    info!("Prompt : {}", prompt);
     info!("Start generating.");
     info!("[ {} ]\n", "Draft only".bold());
     let result = draft_model.single_sampling(&tokens, args.max_tokens)?;
