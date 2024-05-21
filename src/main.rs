@@ -88,6 +88,7 @@ fn main() -> Result<()> {
             .map_err(E::msg)?
             .cyan()
     );
+    info!("Timings report :\n{:?}", result.timings_report);
 
     Ok(())
 }
