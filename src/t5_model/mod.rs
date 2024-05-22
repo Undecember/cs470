@@ -5,7 +5,7 @@ use crate::cmd_args::Args;
 use anyhow::{Error as E, Result};
 use candle_core::{DType, Device};
 use candle_nn::VarBuilder;
-use candle_transformers::models::t5;
+use crate::mult5 as t5;
 use hf_hub::{api::sync::Api, Repo, RepoType};
 use rand::SeedableRng;
 use t5::T5ForConditionalGeneration as T5ModelCG;
