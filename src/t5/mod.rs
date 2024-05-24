@@ -28,7 +28,7 @@ pub struct T5Model<'g> {
     pub seed: u64,
     pub repeat_penalty: f32,
     pub vb: VarBuilder<'g>,
-    pub cgs: Vec<T5Runner>,
+    pub runners: Vec<T5Runner>,
 }
 
 impl<'g> T5Model<'g> {
@@ -71,33 +71,25 @@ impl<'g> T5Model<'g> {
                 seed: args.seed,
                 repeat_penalty: args.repeat_penalty,
                 vb: vb.clone(),
-                cgs: Vec::<T5Runner>::new(),
+                runners: Vec::<T5Runner>::new(),
             },
             tokenizer,
         ))
     }
 
     pub fn init_runners(&mut self, cnt: usize) -> Result<()> {
-        let kv_cache = if self.cgs.is_empty() {
-            None
-        } else {
-            Some(self.cgs[0].export_kv_cache()?)
-        };
-        self.cgs.truncate(cnt);
-        while self.cgs.len() < cnt {
-            self.cgs
+        while self.runners.len() < cnt {
+            self.runners
                 .push(T5Runner::load(self.vb.clone(), &self.config)?);
-        }
-        if let Some(kv_cache) = kv_cache {
-            for i in 1..cnt {
-                self.cgs[i].import_kv_cache(&kv_cache)?;
-            }
         }
         Ok(())
     }
 
     pub fn promote_runner(&mut self, index: usize) -> Result<()> {
-        self.cgs.drain(..index);
+        let kv_cache = self.runners[index].export_kv_cache()?;
+        for runner in &mut self.runners {
+            runner.import_kv_cache(&kv_cache)?;
+        }
         Ok(())
     }
 }
