@@ -3,7 +3,7 @@ use anyhow::Result;
 use candle_core::{DType, Tensor};
 use rand::distributions::Distribution;
 
-impl T5Model {
+impl<'g> T5Model<'g> {
     pub fn p_from_logits(&self, logits: &Tensor) -> Result<Vec<f32>> {
         let logits = logits.to_dtype(DType::F32)?;
         let logits = (&logits / self.temperature)?;

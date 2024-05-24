@@ -1,4 +1,4 @@
-use crate::t5_model::T5Model;
+use crate::t5::T5Model;
 use anyhow::Result;
 use candle_core::Tensor;
 use std::time::Instant;

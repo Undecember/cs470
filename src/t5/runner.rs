@@ -1,9 +1,10 @@
 // T5 Text Model
 // https://github.com/huggingface/transformers/blob/main/src/transformers/models/t5/modeling_t5.py
 
-use candle_transformers::models::with_tracing::{linear_no_bias, Embedding, Linear};
+use anyhow::{Error as E, Result as AResult};
 use candle_core::{DType, Device, Module, Result, Tensor, D};
 use candle_nn::{Activation, VarBuilder};
+use candle_transformers::models::with_tracing::{linear_no_bias, Embedding, Linear};
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -32,7 +33,8 @@ fn get_mask(size: usize, device: &Device) -> Result<Tensor> {
 
 fn masked_fill(on_false: &Tensor, mask: &Tensor, on_true: f32) -> Result<Tensor> {
     let shape = mask.shape();
-    let on_true = Tensor::new(on_true, on_false.device())?.broadcast_as(shape.dims())?;
+    let on_true =
+        Tensor::new(on_true, on_false.device())?.broadcast_as(shape.dims())?;
     let m = mask.where_cond(&on_true, on_false)?;
     Ok(m)
 }
@@ -59,7 +61,8 @@ where
             activation: candle_nn::Activation::Silu,
         }),
         buf => {
-            let activation = serde_plain::from_str(buf).map_err(serde::de::Error::custom)?;
+            let activation =
+                serde_plain::from_str(buf).map_err(serde::de::Error::custom)?;
             Ok(ActivationWithOptionalGating {
                 gated: false,
                 activation,
@@ -183,7 +186,8 @@ impl Module for T5LayerNorm {
         let xs_f32 = xs.to_dtype(DType::F32)?;
         // variance = hidden_states.to(torch.float32).pow(2).mean(-1, keepdim=True)
         let variance = xs_f32.sqr()?.mean_keepdim(D::Minus1)?;
-        let xs = xs_f32.broadcast_div(&(variance + self.variance_epsilon)?.sqrt()?)?;
+        let xs =
+            xs_f32.broadcast_div(&(variance + self.variance_epsilon)?.sqrt()?)?;
         let xs = xs.to_dtype(dtype)?;
         let xs = xs.broadcast_mul(&self.weight)?;
         Ok(xs)
@@ -266,8 +270,11 @@ struct T5LayerFF {
 
 impl T5LayerFF {
     fn load(vb: VarBuilder, cfg: &Config) -> Result<Self> {
-        let layer_norm =
-            T5LayerNorm::load(cfg.d_model, cfg.layer_norm_epsilon, vb.pp("layer_norm"))?;
+        let layer_norm = T5LayerNorm::load(
+            cfg.d_model,
+            cfg.layer_norm_epsilon,
+            vb.pp("layer_norm"),
+        )?;
         let (dense_act, gated_dense_act) = if cfg.feed_forward_proj.gated {
             (
                 None,
@@ -319,6 +326,10 @@ struct T5Attention {
     span_cache: tracing::Span,
     span_mm: tracing::Span,
     span_sm: tracing::Span,
+}
+
+struct T5AttentionCache {
+    data: Option<(Tensor, Tensor)>,
 }
 
 impl T5Attention {
@@ -425,18 +436,20 @@ impl T5Attention {
                 scores.broadcast_add(position_bias)?,
                 Some(position_bias.clone()),
             ),
-            None => match &self.relative_attention_bias {
-                None => (scores, None),
-                Some(relative_attention_bias) => {
-                    // This only handles the bidirectional case.
-                    let kv_len = k.dim(2)?;
-                    let (q_start, q_end) = match self.use_cache {
-                        true => ((kv_len - q_len) as u32, kv_len as u32),
-                        false => (0_u32, kv_len as u32),
-                    };
-                    let num_buckets = self.relative_attention_num_buckets as u32 / 2;
-                    let max_exact = num_buckets / 2;
-                    let relative_position = (q_start..q_end)
+            None => {
+                match &self.relative_attention_bias {
+                    None => (scores, None),
+                    Some(relative_attention_bias) => {
+                        // This only handles the bidirectional case.
+                        let kv_len = k.dim(2)?;
+                        let (q_start, q_end) = match self.use_cache {
+                            true => ((kv_len - q_len) as u32, kv_len as u32),
+                            false => (0_u32, kv_len as u32),
+                        };
+                        let num_buckets =
+                            self.relative_attention_num_buckets as u32 / 2;
+                        let max_exact = num_buckets / 2;
+                        let relative_position = (q_start..q_end)
                         .map(|i| {
                             (0..kv_len as u32)
                                 .map(|j| {
@@ -468,15 +481,17 @@ impl T5Attention {
                                 .collect::<Vec<u32>>()
                         })
                         .collect::<Vec<Vec<_>>>();
-                    let relative_buckets = Tensor::new(relative_position, q.device())?;
-                    let position_bias = relative_attention_bias
-                        .forward(&relative_buckets)?
-                        .permute((2, 0, 1))?
-                        .unsqueeze(0)?;
-                    (scores.broadcast_add(&position_bias)?, Some(position_bias))
-                    // TODO: position_bias_masked?
+                        let relative_buckets =
+                            Tensor::new(relative_position, q.device())?;
+                        let position_bias = relative_attention_bias
+                            .forward(&relative_buckets)?
+                            .permute((2, 0, 1))?
+                            .unsqueeze(0)?;
+                        (scores.broadcast_add(&position_bias)?, Some(position_bias))
+                        // TODO: position_bias_masked?
+                    }
                 }
-            },
+            }
         };
 
         let attn_weights = {
@@ -484,15 +499,37 @@ impl T5Attention {
             candle_nn::ops::softmax_last_dim(&scores)?
         };
         let attn_output = attn_weights.matmul(&v)?;
-        let attn_output = attn_output
-            .transpose(1, 2)?
-            .reshape((b_sz, q_len, self.inner_dim))?;
+        let attn_output =
+            attn_output
+                .transpose(1, 2)?
+                .reshape((b_sz, q_len, self.inner_dim))?;
         let attn_output = self.o.forward(&attn_output)?;
         Ok((attn_output, position_bias))
     }
 
     fn clear_kv_cache(&mut self) {
         self.kv_cache = None
+    }
+
+    fn export_kv_cache(&self) -> AResult<T5AttentionCache> {
+        Ok(T5AttentionCache {
+            data: match &self.kv_cache {
+                None => None,
+                Some((k, v)) => {
+                    Some((k.copy().map_err(E::msg)?, v.copy().map_err(E::msg)?))
+                }
+            },
+        })
+    }
+
+    fn import_kv_cache(&mut self, cache: &T5AttentionCache) -> AResult<()> {
+        if let Some(cache) = &cache.data {
+            self.kv_cache = Some((
+                cache.0.copy().map_err(E::msg)?,
+                cache.1.copy().map_err(E::msg)?,
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -506,8 +543,11 @@ struct T5LayerSelfAttention {
 impl T5LayerSelfAttention {
     fn load(h: bool, d: bool, vb: VarBuilder, cfg: &Config) -> Result<Self> {
         let self_attention = T5Attention::load(h, d, vb.pp("SelfAttention"), cfg)?;
-        let layer_norm =
-            T5LayerNorm::load(cfg.d_model, cfg.layer_norm_epsilon, vb.pp("layer_norm"))?;
+        let layer_norm = T5LayerNorm::load(
+            cfg.d_model,
+            cfg.layer_norm_epsilon,
+            vb.pp("layer_norm"),
+        )?;
         Ok(Self {
             self_attention,
             layer_norm,
@@ -533,6 +573,14 @@ impl T5LayerSelfAttention {
     fn clear_kv_cache(&mut self) {
         self.self_attention.clear_kv_cache()
     }
+
+    fn export_kv_cache(&self) -> AResult<T5AttentionCache> {
+        self.self_attention.export_kv_cache()
+    }
+
+    fn import_kv_cache(&mut self, cache: &T5AttentionCache) -> AResult<()> {
+        self.self_attention.import_kv_cache(cache)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -544,9 +592,13 @@ struct T5LayerCrossAttention {
 
 impl T5LayerCrossAttention {
     fn load(decoder: bool, vb: VarBuilder, cfg: &Config) -> Result<Self> {
-        let cross_attention = T5Attention::load(false, decoder, vb.pp("EncDecAttention"), cfg)?;
-        let layer_norm =
-            T5LayerNorm::load(cfg.d_model, cfg.layer_norm_epsilon, vb.pp("layer_norm"))?;
+        let cross_attention =
+            T5Attention::load(false, decoder, vb.pp("EncDecAttention"), cfg)?;
+        let layer_norm = T5LayerNorm::load(
+            cfg.d_model,
+            cfg.layer_norm_epsilon,
+            vb.pp("layer_norm"),
+        )?;
         Ok(Self {
             cross_attention,
             layer_norm,
@@ -575,6 +627,14 @@ impl T5LayerCrossAttention {
     fn clear_kv_cache(&mut self) {
         self.cross_attention.clear_kv_cache()
     }
+
+    fn export_kv_cache(&self) -> AResult<T5AttentionCache> {
+        self.cross_attention.export_kv_cache()
+    }
+
+    fn import_kv_cache(&mut self, cache: &T5AttentionCache) -> AResult<()> {
+        self.cross_attention.import_kv_cache(cache)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -585,6 +645,11 @@ struct T5Block {
     span: tracing::Span,
 }
 
+struct T5BlockCache {
+    self_data: T5AttentionCache,
+    cross_data: Option<T5AttentionCache>,
+}
+
 impl T5Block {
     fn load(
         has_relative_attention_bias: bool,
@@ -593,8 +658,12 @@ impl T5Block {
         cfg: &Config,
     ) -> Result<Self> {
         let vb = vb.pp("layer");
-        let self_attn =
-            T5LayerSelfAttention::load(has_relative_attention_bias, decoder, vb.pp("0"), cfg)?;
+        let self_attn = T5LayerSelfAttention::load(
+            has_relative_attention_bias,
+            decoder,
+            vb.pp("0"),
+            cfg,
+        )?;
         let cross_attn = if cfg.is_decoder {
             Some(T5LayerCrossAttention::load(decoder, vb.pp("1"), cfg)?)
         } else {
@@ -631,10 +700,12 @@ impl T5Block {
             }
             false => None,
         };
-        let (mut xs, position_bias) = self.self_attn.forward(xs, position_bias, mask.as_ref())?;
+        let (mut xs, position_bias) =
+            self.self_attn.forward(xs, position_bias, mask.as_ref())?;
         // TODO: clamp for f16?
         if let Some(cross_attn) = &mut self.cross_attn {
-            (xs, _) = cross_attn.forward(&xs, None, encoder_hidden_states.unwrap())?;
+            (xs, _) =
+                cross_attn.forward(&xs, None, encoder_hidden_states.unwrap())?;
             // TODO: clamp for f16?
         }
         let xs = self.ff.forward(&xs)?;
@@ -646,6 +717,24 @@ impl T5Block {
         self.self_attn.clear_kv_cache();
         self.cross_attn.iter_mut().for_each(|c| c.clear_kv_cache());
     }
+
+    fn export_kv_cache(&self) -> AResult<T5BlockCache> {
+        Ok(T5BlockCache {
+            self_data: self.self_attn.export_kv_cache()?,
+            cross_data: match &self.cross_attn {
+                None => None,
+                Some(l) => Some(l.export_kv_cache()?),
+            },
+        })
+    }
+
+    fn import_kv_cache(&mut self, cache: &T5BlockCache) -> AResult<()> {
+        self.self_attn.import_kv_cache(&cache.self_data)?;
+        if let Some(attn) = &mut self.cross_attn {
+            attn.import_kv_cache(cache.cross_data.as_ref().unwrap())?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -656,10 +745,21 @@ struct T5Stack {
     span: tracing::Span,
 }
 
+pub struct T5StackCache {
+    data: Vec<T5BlockCache>,
+}
+
 impl T5Stack {
-    fn load(decoder: bool, vb: VarBuilder, shared: &Arc<Embedding>, cfg: &Config) -> Result<Self> {
+    fn load(
+        decoder: bool,
+        vb: VarBuilder,
+        shared: &Arc<Embedding>,
+        cfg: &Config,
+    ) -> Result<Self> {
         let block = (0..cfg.num_layers)
-            .map(|i| T5Block::load(i == 0, decoder, vb.pp(&format!("block.{i}")), cfg))
+            .map(|i| {
+                T5Block::load(i == 0, decoder, vb.pp(&format!("block.{i}")), cfg)
+            })
             .collect::<Result<Vec<_>>>()?;
         let final_layer_norm = T5LayerNorm::load(
             cfg.d_model,
@@ -696,50 +796,27 @@ impl T5Stack {
     fn clear_kv_cache(&mut self) {
         self.block.iter_mut().for_each(|b| b.clear_kv_cache())
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct T5EncoderModel {
-    encoder: T5Stack,
-    device: Device,
-    span: tracing::Span,
-}
-
-impl T5EncoderModel {
-    pub fn load(vb: VarBuilder, cfg: &Config) -> Result<Self> {
-        let shared_vb = if vb.contains_tensor("shared.weight") {
-            vb.pp("shared")
-        } else if vb.contains_tensor("decoder.embed_tokens") {
-            vb.pp("decoder").pp("embed_tokens")
-        } else {
-            vb.pp("encoder").pp("embed_tokens")
+    fn export_kv_cache(&self) -> AResult<T5StackCache> {
+        let mut result = T5StackCache {
+            data: Vec::<T5BlockCache>::new(),
         };
-        let shared = Embedding::new(cfg.vocab_size, cfg.d_model, shared_vb)?;
-        let shared = Arc::new(shared);
-        let encoder = T5Stack::load(false, vb.pp("encoder"), &shared, cfg)?;
-        Ok(Self {
-            encoder,
-            device: vb.device().clone(),
-            span: tracing::span!(tracing::Level::TRACE, "encoder"),
-        })
+        for b in self.block.iter() {
+            result.data.push(b.export_kv_cache()?);
+        }
+        Ok(result)
     }
 
-    pub fn forward(&mut self, input_ids: &Tensor) -> Result<Tensor> {
-        let _enter = self.span.enter();
-        self.encoder.forward(input_ids, None)
-    }
-
-    pub fn device(&self) -> &Device {
-        &self.device
-    }
-
-    pub fn clear_kv_cache(&mut self) {
-        self.encoder.clear_kv_cache()
+    fn import_kv_cache(&mut self, cache: &T5StackCache) -> AResult<()> {
+        for i in 0..self.block.len() {
+            self.block[i].import_kv_cache(&cache.data[i])?;
+        }
+        Ok(())
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct T5ForConditionalGeneration {
+pub struct T5Runner {
     encoder: T5Stack,
     decoder: T5Stack,
     d_model: usize,
@@ -751,7 +828,7 @@ pub struct T5ForConditionalGeneration {
     span_decode_head: tracing::Span,
 }
 
-impl T5ForConditionalGeneration {
+impl T5Runner {
     pub fn load(vb: VarBuilder, cfg: &Config) -> Result<Self> {
         assert!(cfg.is_encoder_decoder);
         let d_model = cfg.d_model;
@@ -834,7 +911,11 @@ impl T5ForConditionalGeneration {
         Ok(output)
     }
 
-    pub fn forward(&mut self, input_ids: &Tensor, decoder_input_ids: &Tensor) -> Result<Tensor> {
+    pub fn forward(
+        &mut self,
+        input_ids: &Tensor,
+        decoder_input_ids: &Tensor,
+    ) -> Result<Tensor> {
         let encoder_output = self.encode(input_ids)?;
         self.decode(decoder_input_ids, &encoder_output)
     }
@@ -846,5 +927,21 @@ impl T5ForConditionalGeneration {
     pub fn clear_kv_cache(&mut self) {
         self.encoder.clear_kv_cache();
         self.decoder.clear_kv_cache();
+    }
+
+    pub fn export_kv_cache(&self) -> AResult<(T5StackCache, T5StackCache)> {
+        Ok((
+            self.encoder.export_kv_cache()?,
+            self.decoder.export_kv_cache()?,
+        ))
+    }
+
+    pub fn import_kv_cache(
+        &mut self,
+        cache: &(T5StackCache, T5StackCache),
+    ) -> AResult<()> {
+        self.encoder.import_kv_cache(&cache.0)?;
+        self.decoder.import_kv_cache(&cache.1)?;
+        Ok(())
     }
 }

@@ -1,4 +1,3 @@
 pub mod cmd_args;
-pub mod t5_model;
+pub mod t5;
 pub mod tasks;
-pub mod mult5;
