@@ -1,27 +1,22 @@
 use anyhow::{Error as E, Result};
 use colored::Colorize;
-use cs470::cmd_args::{parse_args, review_args, whichmodel_to_repo};
-use cs470::t5_model::T5Model;
-use cs470::tasks::{single_sampling, speculative_sampling};
+use cs470::cmd_args::parse_args;
+use cs470::t5::T5Model;
+use cs470::tasks::single_sampling;
 use log::info;
 
 fn main() -> Result<()> {
     std::env::set_var("RUST_LOG", "trace");
     env_logger::init();
     let args = parse_args();
-    review_args(&args);
-
-    let (draft_model_repo, draft_model_revision) =
-        whichmodel_to_repo(args.draft_model_repo);
-    let (target_model_repo, target_model_revision) =
-        whichmodel_to_repo(args.target_model_repo);
+    args.review();
 
     info!("Loading draft model...");
     let (mut draft_model, _) =
-        T5Model::new(draft_model_repo, draft_model_revision, &args)?;
+        T5Model::new(args.get_draft_repo(), args.get_model_args())?;
     info!("Loading target model...");
     let (mut target_model, mut tokenizer) =
-        T5Model::new(target_model_repo, target_model_revision, &args)?;
+        T5Model::new(args.get_target_repo(), args.get_model_args())?;
 
     let prompt = format!("summarize: {}", args.prompt);
     let tokenizer = tokenizer

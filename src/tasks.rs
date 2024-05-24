@@ -1,4 +1,4 @@
-use crate::t5_model::T5Model;
+use crate::t5::T5Model;
 use anyhow::Result;
 use candle_core::Tensor;
 use std::time::Instant;
@@ -48,7 +48,7 @@ pub fn single_sampling(
     .to_vec();
 
     let input_tokens = Tensor::new(tokens, &model.device)?.unsqueeze(0)?;
-    let encoder_output = model.cgs[0].encode(&input_tokens)?;
+    let encoder_output = model.runners[0].encode(&input_tokens)?;
     for i in 0..max_tokens {
         let decoder_tokens = if i == 0 || !model.config.use_cache {
             Tensor::new(output_tokens.as_slice(), &model.device)?.unsqueeze(0)?
