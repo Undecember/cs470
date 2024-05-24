@@ -1,6 +1,7 @@
 use crate::t5::T5Model;
 use anyhow::Result;
 use candle_core::Tensor;
+use log::debug;
 use std::time::Instant;
 
 #[derive(Debug)]
@@ -48,6 +49,7 @@ pub fn single_sampling(
     .to_vec();
 
     let input_tokens = Tensor::new(tokens, &model.device)?.unsqueeze(0)?;
+    model.init_runners(1)?;
     let encoder_output = model.runners[0].encode(&input_tokens)?;
     for i in 0..max_tokens {
         let decoder_tokens = if i == 0 || !model.config.use_cache {
@@ -91,21 +93,22 @@ pub fn speculative_sampling(
         .unwrap_or(target_model.config.pad_token_id)
         as u32]
     .to_vec();
-    draft_model.cgs[0].clear_kv_cache();
-    draft_model.init_cgs(1);
-    target_model.cgs[0].clear_kv_cache();
-    target_model.init_cgs(1);
+    draft_model.init_runners(2)?;
+    target_model.init_runners(gamma + 1)?;
 
     let input_tokens = Tensor::new(tokens, &draft_model.device)?.unsqueeze(0)?;
-    let draft_encoder_output = draft_model.cgs[0].encode(&input_tokens)?;
-    let target_encoder_output = target_model.cgs[0].encode(&input_tokens)?;
+    let draft_encoder_output = draft_model.runners[0].encode(&input_tokens)?;
+    draft_model.promote_runner(0)?;
+    let target_encoder_output = target_model.runners[0].encode(&input_tokens)?;
+    target_model.promote_runner(0)?;
     while output_tokens.len() < max_tokens {
         let i = output_tokens.len() - 1;
         let mut ps = Vec::<Vec<f32>>::new();
         let mut qs = Vec::<Vec<f32>>::new();
         let mut new_tokens = Vec::<u32>::new();
-        draft_model.init_cgs(2);
+        debug!("i : {:?}", i);
         for j in 0..gamma {
+            debug!("draft j : {:?}", j);
             let decoder_tokens = if draft_model.config.use_cache {
                 let last_token = *output_tokens.last().unwrap();
                 Tensor::new(&[last_token], &draft_model.device)?.unsqueeze(0)?
@@ -138,8 +141,8 @@ pub fn speculative_sampling(
         let cur_gamma = new_tokens.len();
         output_tokens.truncate(output_tokens.len() - cur_gamma);
         let mut accept_cnt = 0;
-        target_model.init_cgs(cur_gamma + 1);
-        for j in 0..cur_gamma + 1 {
+        for (j, new_token_j) in new_tokens.iter().enumerate().take(cur_gamma + 1) {
+            debug!("target j : {:?}", j);
             let decoder_tokens = if target_model.config.use_cache {
                 Tensor::new(&output_tokens[i..], &target_model.device)?
                     .unsqueeze(0)?
@@ -148,13 +151,19 @@ pub fn speculative_sampling(
                     .unsqueeze(0)?
             };
             let begin_time = Instant::now();
+            debug!("decoder tokens {:?}", decoder_tokens.shape());
             let logits = target_model.get_logits(
                 j,
                 &decoder_tokens,
                 &target_encoder_output,
                 &output_tokens,
-            )?;
-            ps.push(target_model.p_from_logits(&logits)?);
+            );
+            if logits.is_err() {
+                debug!("{:?}", logits);
+            } else {
+                let logits = logits.unwrap();
+                ps.push(target_model.p_from_logits(&logits)?);
+            }
             let end_time = Instant::now();
             result
                 .timings_report
@@ -163,13 +172,14 @@ pub fn speculative_sampling(
                 .timings_report
                 .push((end_time, TimingsReportItem::TargetEnd(i + j)));
             if j < cur_gamma {
-                output_tokens.push(new_tokens[j]);
+                output_tokens.push(*new_token_j);
             }
         }
         output_tokens.truncate(output_tokens.len() - cur_gamma);
         for j in 0..cur_gamma {
+            debug!("target2 j : {:?}", j);
             let accept_prob = f32::min(
-                1 as f32,
+                1_f32,
                 ps[j][new_tokens[j] as usize] / qs[j][new_tokens[j] as usize],
             );
             if target_model.prob_test(accept_prob) {
@@ -215,23 +225,30 @@ pub fn speculative_sampling(
                 break;
             }
         }
-        target_model.promote_cg(accept_cnt);
-        let decoder_tokens = if accept_cnt == cur_gamma {
-            draft_model.promote_cg(1);
-            Tensor::new(output_tokens[output_tokens.len() - 2], &target_model.device)?
+        target_model.promote_runner(accept_cnt)?;
+        debug!("accept_cnt : {:?}, cur_gamma : {:?}", accept_cnt, cur_gamma);
+        if accept_cnt > 0 {
+            let decoder_tokens = if accept_cnt == cur_gamma {
+                draft_model.promote_runner(1)?;
+                Tensor::new(
+                    output_tokens[output_tokens.len() - 2],
+                    &draft_model.device,
+                )?
                 .unsqueeze(0)?
-        } else {
-            draft_model.promote_cg(0);
-            Tensor::new(&output_tokens[i..i + accept_cnt], &target_model.device)?
-                .unsqueeze(0)?
-        };
-        if draft_model.config.use_cache {
-            draft_model.get_logits(
-                0,
-                &decoder_tokens,
-                &draft_encoder_output,
-                &output_tokens,
-            )?;
+            } else {
+                draft_model.promote_runner(0)?;
+                Tensor::new(&output_tokens[i..i + accept_cnt], &draft_model.device)?
+                    .unsqueeze(0)?
+            };
+            debug!("{:?}", decoder_tokens);
+            if draft_model.config.use_cache {
+                draft_model.get_logits(
+                    0,
+                    &decoder_tokens,
+                    &draft_encoder_output,
+                    &output_tokens,
+                )?;
+            }
         }
     }
     result.output_tokens = output_tokens;

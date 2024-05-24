@@ -106,7 +106,6 @@ impl Args {
             temperature: self.temperature,
             seed: self.seed,
             top_p: self.top_p,
-            cpu: self.cpu,
             no_kv_cache: self.no_kv_cache,
             repeat_penalty: self.repeat_penalty,
         }

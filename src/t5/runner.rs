@@ -823,13 +823,17 @@ pub struct T5Runner {
     tie_word_embeddings: bool,
     lm_head: Option<Linear>,
     shared: Arc<Embedding>,
-    device: Device,
+    device: Arc<Device>,
     span_decode: tracing::Span,
     span_decode_head: tracing::Span,
 }
 
 impl T5Runner {
-    pub fn load(vb: VarBuilder, cfg: &Config) -> Result<Self> {
+    pub fn load(
+        vb: Arc<VarBuilder>,
+        cfg: &Config,
+        device: Arc<Device>,
+    ) -> Result<Self> {
         assert!(cfg.is_encoder_decoder);
         let d_model = cfg.d_model;
         let shared_vb = if vb.contains_tensor("shared.weight") {
@@ -870,7 +874,7 @@ impl T5Runner {
             tie_word_embeddings,
             lm_head,
             shared,
-            device: vb.device().clone(),
+            device,
             span_decode: tracing::span!(tracing::Level::TRACE, "decode"),
             span_decode_head: tracing::span!(tracing::Level::TRACE, "decode-head"),
         })

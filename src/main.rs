@@ -1,9 +1,11 @@
 use anyhow::{Error as E, Result};
+use candle_core::Device;
 use colored::Colorize;
 use cs470::cmd_args::parse_args;
 use cs470::t5::T5Model;
-use cs470::tasks::single_sampling;
+use cs470::tasks::{single_sampling, speculative_sampling};
 use log::info;
+use std::sync::Arc;
 
 fn main() -> Result<()> {
     std::env::set_var("RUST_LOG", "trace");
@@ -11,12 +13,22 @@ fn main() -> Result<()> {
     let args = parse_args();
     args.review();
 
+    let device = if args.cpu {
+        Device::Cpu
+    } else {
+        Device::new_cuda(0).map_err(E::msg)?
+    };
+    let device = Arc::new(device);
+
     info!("Loading draft model...");
     let (mut draft_model, _) =
-        T5Model::new(args.get_draft_repo(), args.get_model_args())?;
+        T5Model::new(args.get_draft_repo(), device.clone(), args.get_model_args())?;
     info!("Loading target model...");
-    let (mut target_model, mut tokenizer) =
-        T5Model::new(args.get_target_repo(), args.get_model_args())?;
+    let (mut target_model, mut tokenizer) = T5Model::new(
+        args.get_target_repo(),
+        device.clone(),
+        args.get_model_args(),
+    )?;
 
     let prompt = format!("summarize: {}", args.prompt);
     let tokenizer = tokenizer
