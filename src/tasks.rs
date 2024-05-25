@@ -52,12 +52,13 @@ pub fn single_sampling(
     let encoder_output = model.runners[0].encode(&input_tokens)?;
     for i in 0..max_tokens {
         let begin_time = Instant::now();
-        let logits = model.runners[0].get_logits(
+        model.runners[0].forward_kv_cache(
             i..i + 1,
             &encoder_output,
             &output_tokens,
             model.config.use_cache,
         )?;
+        let logits = model.runners[0].get_logits(output_tokens.as_slice())?;
         let p = model.p_from_logits(&logits)?;
         let next_token = model.sample_from_p(&p)?;
         let end_time = Instant::now();
@@ -109,12 +110,14 @@ pub fn speculative_sampling(
         draft_model.pass_kv_cache(0, 1)?;
         for j in 0..gamma {
             let begin_time = Instant::now();
-            let logits = draft_model.runners[1].get_logits(
+            draft_model.runners[1].forward_kv_cache(
                 i + j - 1..i + j,
                 &draft_encoder_output,
                 &output_tokens,
                 draft_model.config.use_cache,
             )?;
+            let logits =
+                draft_model.runners[1].get_logits(output_tokens.as_slice())?;
             qs.push(draft_model.p_from_logits(&logits)?);
             let next_token = draft_model.sample_from_p(&qs[j])?;
             let end_time = Instant::now();
@@ -133,12 +136,14 @@ pub fn speculative_sampling(
         let cur_gamma = new_tokens.len();
         for j in 0..cur_gamma + 1 {
             let begin_time = Instant::now();
-            let logits = target_model.runners[j].get_logits(
+            target_model.runners[j].forward_kv_cache(
                 i - 1..i + j,
                 &target_encoder_output,
                 &output_tokens,
                 target_model.config.use_cache,
             )?;
+            let logits =
+                target_model.runners[j].get_logits(output_tokens.as_slice())?;
             ps.push(target_model.p_from_logits(&logits)?);
             let end_time = Instant::now();
             result
@@ -202,14 +207,14 @@ pub fn speculative_sampling(
         target_model.propagate_kv_cache(accept_cnt)?;
         if draft_model.config.use_cache {
             if accept_cnt == cur_gamma {
-                draft_model.runners[0].get_logits(
+                draft_model.runners[0].forward_kv_cache(
                     output_tokens.len() - 2..output_tokens.len() - 1,
                     &draft_encoder_output,
                     &output_tokens,
                     draft_model.config.use_cache,
                 )?;
             } else {
-                draft_model.runners[0].get_logits(
+                draft_model.runners[0].forward_kv_cache(
                     i - 1..output_tokens.len() - 1,
                     &draft_encoder_output,
                     &output_tokens,

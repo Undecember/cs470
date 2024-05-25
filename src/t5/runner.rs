@@ -321,7 +321,7 @@ impl T5Attention {
             None => None,
             Some((k, v)) => Some((k.copy()?, v.copy()?)),
         };
-        Ok(T5AttentionCache{kv_cache})
+        Ok(T5AttentionCache { kv_cache })
     }
 
     fn import_kv_cache(&mut self, cache: &T5AttentionCache) -> AResult<()> {
@@ -631,12 +631,14 @@ impl T5Block {
     fn import_kv_cache(&mut self, cache: &T5BlockCache) -> AResult<()> {
         self.self_attn.import_kv_cache(&cache.self_attn)?;
         if let Some(cross_attn) = &cache.cross_attn {
-            self.cross_attn.as_mut().unwrap().import_kv_cache(cross_attn)?;
+            self.cross_attn
+                .as_mut()
+                .unwrap()
+                .import_kv_cache(cross_attn)?;
         }
         Ok(())
     }
 }
-
 
 impl T5Block {
     fn load(
@@ -790,6 +792,7 @@ pub struct T5Runner {
     shared: Arc<Embedding>,
     device: Arc<Device>,
     repeat_penalty: f32,
+    last_decoder_output: Option<Tensor>,
 }
 
 pub struct T5RunnerCache {
@@ -861,6 +864,7 @@ impl T5Runner {
             shared,
             device,
             repeat_penalty,
+            last_decoder_output: None,
         })
     }
 
@@ -915,30 +919,50 @@ impl T5Runner {
         self.decoder.clear_kv_cache();
     }
 
-    pub fn get_logits(
+    pub fn forward_kv_cache(
         &mut self,
-        mut range: Range<usize>,
+        range: Range<usize>,
         encoder_output: &Tensor,
         output_tokens: &[u32],
         use_cache: bool,
-    ) -> AResult<Tensor> {
-        let logits = if use_cache {
-            range.end -= 1;
-            let last_token = output_tokens[range.end];
+    ) -> AResult<()> {
+        if use_cache {
             for i in range {
                 let decoder_token =
                     Tensor::new(&[output_tokens[i]], &self.device)?.unsqueeze(0)?;
-                self.decoder.forward(&decoder_token, Some(encoder_output))?.squeeze(0)?;
+                self.last_decoder_output =
+                    Some(self.decoder.forward(&decoder_token, Some(encoder_output))?);
             }
-            let last_token =
-                Tensor::new(&[last_token], &self.device)?.unsqueeze(0)?;
-            self.decode(&last_token, encoder_output)?.squeeze(0)?
+            Ok(())
         } else {
             let decoder_tokens =
                 Tensor::new(&output_tokens[..range.end], &self.device)?
                     .unsqueeze(0)?;
-            self.decode(&decoder_tokens, encoder_output)?.squeeze(0)?
+            self.last_decoder_output = Some(
+                self.decoder
+                    .forward(&decoder_tokens, Some(encoder_output))?,
+            );
+            Ok(())
+        }
+    }
+
+    pub fn get_logits(&mut self, output_tokens: &[u32]) -> AResult<Tensor> {
+        let scaling_factor = if self.tie_word_embeddings {
+            (self.d_model as f64).sqrt()
+        } else {
+            1.0
         };
+        let decoder_output = self.last_decoder_output.as_ref().unwrap();
+        let sequence_output = ((decoder_output
+            .narrow(1, decoder_output.dim(1)? - 1, 1)?
+            .squeeze(1)?)
+            * scaling_factor)?;
+        let logits = {
+            match self.lm_head {
+                None => sequence_output.matmul(&self.shared.embeddings().t()?)?,
+                Some(ref lm_head) => lm_head.forward(&sequence_output)?,
+            }
+        }.squeeze(0)?;
         if self.repeat_penalty == 1. {
             Ok(logits)
         } else {
