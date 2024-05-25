@@ -135,13 +135,18 @@ pub fn speculative_sampling(
         }
         let cur_gamma = new_tokens.len();
         for j in 0..cur_gamma + 1 {
-            let begin_time = Instant::now();
             target_model.runners[j].forward_kv_cache(
-                i - 1..i + j,
+                i + j - 1..i + j,
                 &target_encoder_output,
                 &output_tokens,
                 target_model.config.use_cache,
             )?;
+            if j < cur_gamma {
+                target_model.pass_kv_cache(j, j + 1)?;
+            }
+        }
+        for j in 0..cur_gamma + 1 {
+            let begin_time = Instant::now();
             let logits =
                 target_model.runners[j].get_logits(output_tokens.as_slice())?;
             ps.push(target_model.p_from_logits(&logits)?);
@@ -204,7 +209,7 @@ pub fn speculative_sampling(
                 break;
             }
         }
-        target_model.propagate_kv_cache(accept_cnt)?;
+        target_model.pass_kv_cache(accept_cnt, 0)?;
         if draft_model.config.use_cache {
             if accept_cnt == cur_gamma {
                 draft_model.runners[0].forward_kv_cache(
