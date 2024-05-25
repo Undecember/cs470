@@ -58,8 +58,11 @@ pub fn single_sampling(
             Tensor::new(&[last_token], &model.device)?.unsqueeze(0)?
         };
         let begin_time = Instant::now();
-        let logits =
-            model.get_logits(0, &decoder_tokens, &encoder_output, &output_tokens)?;
+        let logits = model.runners[0].get_logits(
+            &decoder_tokens,
+            &encoder_output,
+            &output_tokens,
+        )?;
         let p = model.p_from_logits(&logits)?;
         let next_token = model.sample_from_p(&p)?;
         let end_time = Instant::now();
@@ -118,8 +121,7 @@ pub fn speculative_sampling(
                     .unsqueeze(0)?
             };
             let begin_time = Instant::now();
-            let logits = draft_model.get_logits(
-                1,
+            let logits = draft_model.runners[1].get_logits(
                 &decoder_tokens,
                 &draft_encoder_output,
                 &output_tokens,
@@ -150,8 +152,7 @@ pub fn speculative_sampling(
                     .unsqueeze(0)?
             };
             let begin_time = Instant::now();
-            let logits = target_model.get_logits(
-                j,
+            let logits = target_model.runners[j].get_logits(
                 &decoder_tokens,
                 &target_encoder_output,
                 &output_tokens,
@@ -229,8 +230,7 @@ pub fn speculative_sampling(
                     &draft_model.device,
                 )?
                 .unsqueeze(0)?;
-                draft_model.get_logits(
-                    0,
+                draft_model.runners[0].get_logits(
                     &decoder_tokens,
                     &draft_encoder_output,
                     &output_tokens,
@@ -240,8 +240,7 @@ pub fn speculative_sampling(
                     let decoder_tokens =
                         Tensor::new(&[output_tokens[j]], &draft_model.device)?
                             .unsqueeze(0)?;
-                    draft_model.get_logits(
-                        0,
+                    draft_model.runners[0].get_logits(
                         &decoder_tokens,
                         &draft_encoder_output,
                         &output_tokens,

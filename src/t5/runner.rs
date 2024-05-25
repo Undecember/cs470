@@ -1,7 +1,4 @@
-// T5 Text Model
-// https://github.com/huggingface/transformers/blob/main/src/transformers/models/t5/modeling_t5.py
-
-use anyhow::Result as AResult;
+use anyhow::{Error as E, Result as AResult};
 use candle_core::{DType, Device, Module, Result, Tensor, D};
 use candle_nn::{
     embedding, linear_no_bias, Activation, Embedding, Linear, VarBuilder,
@@ -769,6 +766,7 @@ pub struct T5Runner {
     lm_head: Option<Linear>,
     shared: Arc<Embedding>,
     device: Arc<Device>,
+    repeat_penalty: f32,
 }
 
 impl T5Runner {
@@ -781,12 +779,18 @@ impl T5Runner {
             lm_head: self.lm_head.clone(),
             shared: self.shared.clone(),
             device: self.device.clone(),
+            repeat_penalty: self.repeat_penalty,
         })
     }
 }
 
 impl T5Runner {
-    pub fn load(vb: VarBuilder, cfg: &Config, device: Arc<Device>) -> Result<Self> {
+    pub fn load(
+        vb: VarBuilder,
+        cfg: &Config,
+        device: Arc<Device>,
+        repeat_penalty: f32,
+    ) -> Result<Self> {
         assert!(cfg.is_encoder_decoder);
         let d_model = cfg.d_model;
         let shared_vb = if vb.contains_tensor("shared.weight") {
@@ -828,6 +832,7 @@ impl T5Runner {
             lm_head,
             shared,
             device,
+            repeat_penalty,
         })
     }
 
@@ -880,5 +885,25 @@ impl T5Runner {
     pub fn clear_kv_cache(&mut self) {
         self.encoder.clear_kv_cache();
         self.decoder.clear_kv_cache();
+    }
+
+    pub fn get_logits(
+        &mut self,
+        decoder_tokens: &Tensor,
+        encoder_output: &Tensor,
+        output_tokens: &[u32],
+    ) -> AResult<Tensor> {
+        let logits = self.decode(decoder_tokens, encoder_output)?.squeeze(0)?;
+        if self.repeat_penalty == 1. {
+            Ok(logits)
+        } else {
+            let start_at = output_tokens.len().saturating_sub(64);
+            candle_transformers::utils::apply_repeat_penalty(
+                &logits,
+                self.repeat_penalty,
+                &output_tokens[start_at..],
+            )
+            .map_err(E::msg)
+        }
     }
 }

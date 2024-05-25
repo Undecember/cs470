@@ -1,6 +1,5 @@
 pub mod logits;
 pub mod runner;
-pub mod sampling;
 
 use anyhow::{Error as E, Result};
 use candle_core::{DType, Device};
@@ -55,7 +54,12 @@ impl T5Model {
             )?
         };
         let rng = rand::rngs::StdRng::seed_from_u64(args.seed);
-        let runners = vec![T5Runner::load(vb, &config, device.clone())?];
+        let runners = vec![T5Runner::load(
+            vb,
+            &config,
+            device.clone(),
+            args.repeat_penalty,
+        )?];
 
         Ok((
             Self {
