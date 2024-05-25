@@ -19,7 +19,7 @@ pub struct T5ModelArgs {
     pub repeat_penalty: f32,
 }
 
-pub struct T5Model<'g> {
+pub struct T5Model {
     pub device: Arc<Device>,
     pub rng: rand::rngs::StdRng,
     pub config: runner::Config,
@@ -27,11 +27,10 @@ pub struct T5Model<'g> {
     pub top_p: Option<f64>,
     pub seed: u64,
     pub repeat_penalty: f32,
-    pub vb: Arc<VarBuilder<'g>>,
     pub runners: Vec<T5Runner>,
 }
 
-impl<'g> T5Model<'g> {
+impl T5Model {
     pub fn new(
         model_repo: (String, String),
         device: Arc<Device>,
@@ -55,9 +54,8 @@ impl<'g> T5Model<'g> {
                 &device,
             )?
         };
-        let vb = Arc::new(vb);
         let rng = rand::rngs::StdRng::seed_from_u64(args.seed);
-        let runners = vec![T5Runner::load(vb.clone(), &config, device.clone())?];
+        let runners = vec![T5Runner::load(vb, &config, device.clone())?];
 
         Ok((
             Self {
@@ -68,7 +66,6 @@ impl<'g> T5Model<'g> {
                 top_p: args.top_p,
                 seed: args.seed,
                 repeat_penalty: args.repeat_penalty,
-                vb: vb.clone(),
                 runners,
             },
             tokenizer,
@@ -79,24 +76,17 @@ impl<'g> T5Model<'g> {
         self.runners.truncate(1);
         self.runners[0].clear_kv_cache();
         for _ in 1..cnt {
-            self.runners.push(T5Runner::load(
-                self.vb.clone(),
-                &self.config,
-                self.device.clone(),
-            )?);
+            self.runners.push(self.runners[0].copy()?);
         }
-        self.promote_runner(0)?;
         Ok(())
     }
 
     pub fn promote_runner(&mut self, index: usize) -> Result<()> {
-        let kv_cache = self.runners[index].export_kv_cache()?;
         for i in 0..self.runners.len() {
             if i == index {
                 continue;
             }
-            // self.runners[i] = self.runners[index].clone();
-            self.runners[i].import_kv_cache(&kv_cache)?;
+            self.runners[i] = self.runners[index].copy()?;
         }
         Ok(())
     }

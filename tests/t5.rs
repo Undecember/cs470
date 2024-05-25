@@ -3,7 +3,7 @@ const INPUT_TEXT: &str = "sPummarize: Post-Traumatic Stress Disorder (PTSD) is a
 mod t5_test {
     use crate::INPUT_TEXT;
     use anyhow::{Error as E, Result};
-    use candle_core::{Tensor, Device};
+    use candle_core::{Device, Tensor};
     use cs470::t5::*;
     use std::sync::Arc;
 
@@ -21,7 +21,7 @@ mod t5_test {
             repeat_penalty: 1.1,
         };
         let (mut model, mut tokenizer) = T5Model::new(
-            ("google-t5/t5-small".to_string(), "main".to_string()),
+            ("google-t5/t5-3b".to_string(), "main".to_string()),
             device.clone(),
             model,
         )?;
@@ -79,7 +79,7 @@ mod t5_test {
             repeat_penalty: 1.1,
         };
         let (mut model, mut tokenizer) = T5Model::new(
-            ("google-t5/t5-small".to_string(), "main".to_string()),
+            ("google-t5/t5-3b".to_string(), "main".to_string()),
             device.clone(),
             model,
         )?;

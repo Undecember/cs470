@@ -2,7 +2,7 @@ use super::T5Model;
 use anyhow::{Error as E, Result};
 use candle_core::Tensor;
 
-impl<'g> T5Model<'g> {
+impl T5Model {
     pub fn get_logits(
         &mut self,
         index: usize,

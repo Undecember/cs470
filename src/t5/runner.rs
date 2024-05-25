@@ -1,10 +1,11 @@
 // T5 Text Model
 // https://github.com/huggingface/transformers/blob/main/src/transformers/models/t5/modeling_t5.py
 
-use anyhow::{Error as E, Result as AResult};
+use anyhow::Result as AResult;
 use candle_core::{DType, Device, Module, Result, Tensor, D};
-use candle_nn::{Activation, VarBuilder};
-use candle_transformers::models::with_tracing::{linear_no_bias, Embedding, Linear};
+use candle_nn::{
+    embedding, linear_no_bias, Activation, Embedding, Linear, VarBuilder,
+};
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -165,7 +166,6 @@ impl Config {
 struct T5LayerNorm {
     weight: Tensor,
     variance_epsilon: f64,
-    span: tracing::Span,
 }
 
 impl T5LayerNorm {
@@ -174,14 +174,12 @@ impl T5LayerNorm {
         Ok(Self {
             weight,
             variance_epsilon: eps,
-            span: tracing::span!(tracing::Level::TRACE, "layer-norm"),
         })
     }
 }
 
 impl Module for T5LayerNorm {
     fn forward(&self, xs: &Tensor) -> Result<Tensor> {
-        let _enter = self.span.enter();
         let dtype = xs.dtype();
         let xs_f32 = xs.to_dtype(DType::F32)?;
         // variance = hidden_states.to(torch.float32).pow(2).mean(-1, keepdim=True)
@@ -199,7 +197,6 @@ struct T5DenseActDense {
     wi: Linear,
     wo: Linear,
     act: Activation,
-    span: tracing::Span,
 }
 
 impl T5DenseActDense {
@@ -210,14 +207,12 @@ impl T5DenseActDense {
             wi,
             wo,
             act: Activation::Relu,
-            span: tracing::span!(tracing::Level::TRACE, "dense-act-dense"),
         })
     }
 }
 
 impl Module for T5DenseActDense {
     fn forward(&self, xs: &Tensor) -> Result<Tensor> {
-        let _enter = self.span.enter();
         let xs = self.wi.forward(xs)?;
         let xs = self.act.forward(&xs)?;
         let xs = self.wo.forward(&xs)?;
@@ -231,7 +226,6 @@ struct T5DenseGatedActDense {
     wi_1: Linear,
     wo: Linear,
     act: Activation,
-    span: tracing::Span,
 }
 
 impl T5DenseGatedActDense {
@@ -244,14 +238,12 @@ impl T5DenseGatedActDense {
             wi_1,
             wo,
             act: cfg.feed_forward_proj.activation,
-            span: tracing::span!(tracing::Level::TRACE, "dense-gated-act-dense"),
         })
     }
 }
 
 impl Module for T5DenseGatedActDense {
     fn forward(&self, xs: &Tensor) -> Result<Tensor> {
-        let _enter = self.span.enter();
         let hidden_gelu = self.act.forward(&self.wi_0.forward(xs)?)?;
         let hidden_linear = self.wi_1.forward(xs)?;
         let xs = hidden_gelu.broadcast_mul(&hidden_linear)?;
@@ -265,7 +257,6 @@ struct T5LayerFF {
     dense_act: Option<T5DenseActDense>,
     gated_dense_act: Option<T5DenseGatedActDense>,
     layer_norm: T5LayerNorm,
-    span: tracing::Span,
 }
 
 impl T5LayerFF {
@@ -290,14 +281,12 @@ impl T5LayerFF {
             dense_act,
             gated_dense_act,
             layer_norm,
-            span: tracing::span!(tracing::Level::TRACE, "layer-ff"),
         })
     }
 }
 
 impl Module for T5LayerFF {
     fn forward(&self, xs: &Tensor) -> Result<Tensor> {
-        let _enter = self.span.enter();
         let ys = self.layer_norm.forward(xs)?;
         let ys = match &self.dense_act {
             Some(dense_act) => dense_act.forward(&ys)?,
@@ -322,14 +311,29 @@ struct T5Attention {
     inner_dim: usize,
     use_cache: bool,
     kv_cache: Option<(Tensor, Tensor)>,
-    span: tracing::Span,
-    span_cache: tracing::Span,
-    span_mm: tracing::Span,
-    span_sm: tracing::Span,
 }
 
-struct T5AttentionCache {
-    data: Option<(Tensor, Tensor)>,
+impl T5Attention {
+    fn copy(&self) -> AResult<Self> {
+        let kv_cache = match &self.kv_cache {
+            None => None,
+            Some((k, v)) => Some((k.copy()?, v.copy()?)),
+        };
+        Ok(Self {
+            q: self.q.clone(),
+            k: self.k.clone(),
+            v: self.v.clone(),
+            o: self.o.clone(),
+            n_heads: self.n_heads,
+            d_kv: self.d_kv,
+            relative_attention_bias: self.relative_attention_bias.clone(),
+            relative_attention_num_buckets: self.relative_attention_num_buckets,
+            relative_attention_max_distance: self.relative_attention_max_distance,
+            inner_dim: self.inner_dim,
+            use_cache: self.use_cache,
+            kv_cache,
+        })
+    }
 }
 
 impl T5Attention {
@@ -345,7 +349,7 @@ impl T5Attention {
         let v = linear_no_bias(cfg.d_model, inner_dim, vb.pp("v"))?;
         let o = linear_no_bias(inner_dim, cfg.d_model, vb.pp("o"))?;
         let relative_attention_bias = if has_relative_attention_bias {
-            let emb = Embedding::new(
+            let emb = embedding(
                 cfg.relative_attention_num_buckets,
                 cfg.num_heads,
                 vb.pp("relative_attention_bias"),
@@ -367,10 +371,6 @@ impl T5Attention {
             inner_dim,
             use_cache: cfg.use_cache && decoder,
             kv_cache: None,
-            span: tracing::span!(tracing::Level::TRACE, "attention"),
-            span_cache: tracing::span!(tracing::Level::TRACE, "attention-cache"),
-            span_mm: tracing::span!(tracing::Level::TRACE, "attention-mm"),
-            span_sm: tracing::span!(tracing::Level::TRACE, "attention-sm"),
         })
     }
 
@@ -383,7 +383,6 @@ impl T5Attention {
     ) -> Result<(Tensor, Option<Tensor>)> {
         // Performs Self-attention (if key_value_states is None) or attention
         // over source sentence (provided by key_value_states).
-        let _enter = self.span.enter();
         let kv_input = match key_value_states {
             None => xs,
             Some(key_value_states) => key_value_states,
@@ -405,7 +404,6 @@ impl T5Attention {
             .transpose(1, 2)?;
 
         if self.use_cache && key_value_states.is_none() {
-            let _enter = self.span_cache.enter();
             if let Some((kv_cache_k, kv_cache_v)) = &self.kv_cache {
                 k = Tensor::cat(&[kv_cache_k, &k], 2)?;
                 v = Tensor::cat(&[kv_cache_v, &v], 2)?;
@@ -415,10 +413,7 @@ impl T5Attention {
         let k = k.contiguous()?;
         let v = v.contiguous()?;
         // TODO: Use flash_attn.
-        let scores = {
-            let _enter = self.span_mm.enter();
-            q.matmul(&k.t()?)?
-        };
+        let scores = { q.matmul(&k.t()?)? };
         let scores = match mask {
             None => scores,
             Some(mask) => masked_fill(
@@ -494,10 +489,7 @@ impl T5Attention {
             }
         };
 
-        let attn_weights = {
-            let _enter = self.span_sm.enter();
-            candle_nn::ops::softmax_last_dim(&scores)?
-        };
+        let attn_weights = { candle_nn::ops::softmax_last_dim(&scores)? };
         let attn_output = attn_weights.matmul(&v)?;
         let attn_output =
             attn_output
@@ -510,34 +502,21 @@ impl T5Attention {
     fn clear_kv_cache(&mut self) {
         self.kv_cache = None
     }
-
-    fn export_kv_cache(&self) -> AResult<T5AttentionCache> {
-        Ok(T5AttentionCache {
-            data: match &self.kv_cache {
-                None => None,
-                Some((k, v)) => {
-                    Some((k.copy().map_err(E::msg)?, v.copy().map_err(E::msg)?))
-                }
-            },
-        })
-    }
-
-    fn import_kv_cache(&mut self, cache: &T5AttentionCache) -> AResult<()> {
-        if let Some(cache) = &cache.data {
-            self.kv_cache = Some((
-                cache.0.copy().map_err(E::msg)?,
-                cache.1.copy().map_err(E::msg)?,
-            ));
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone)]
 struct T5LayerSelfAttention {
     self_attention: T5Attention,
     layer_norm: T5LayerNorm,
-    span: tracing::Span,
+}
+
+impl T5LayerSelfAttention {
+    fn copy(&self) -> AResult<Self> {
+        Ok(Self {
+            self_attention: self.self_attention.copy()?,
+            layer_norm: self.layer_norm.clone(),
+        })
+    }
 }
 
 impl T5LayerSelfAttention {
@@ -551,7 +530,6 @@ impl T5LayerSelfAttention {
         Ok(Self {
             self_attention,
             layer_norm,
-            span: tracing::span!(tracing::Level::TRACE, "self-attn"),
         })
     }
 
@@ -561,7 +539,6 @@ impl T5LayerSelfAttention {
         position_bias: Option<&Tensor>,
         mask: Option<&Tensor>,
     ) -> Result<(Tensor, Option<Tensor>)> {
-        let _enter = self.span.enter();
         let normed_xs = self.layer_norm.forward(xs)?;
         let (ys, position_bias) =
             self.self_attention
@@ -573,21 +550,21 @@ impl T5LayerSelfAttention {
     fn clear_kv_cache(&mut self) {
         self.self_attention.clear_kv_cache()
     }
-
-    fn export_kv_cache(&self) -> AResult<T5AttentionCache> {
-        self.self_attention.export_kv_cache()
-    }
-
-    fn import_kv_cache(&mut self, cache: &T5AttentionCache) -> AResult<()> {
-        self.self_attention.import_kv_cache(cache)
-    }
 }
 
 #[derive(Debug, Clone)]
 struct T5LayerCrossAttention {
     cross_attention: T5Attention,
     layer_norm: T5LayerNorm,
-    span: tracing::Span,
+}
+
+impl T5LayerCrossAttention {
+    fn copy(&self) -> AResult<Self> {
+        Ok(Self {
+            cross_attention: self.cross_attention.copy()?,
+            layer_norm: self.layer_norm.clone(),
+        })
+    }
 }
 
 impl T5LayerCrossAttention {
@@ -602,7 +579,6 @@ impl T5LayerCrossAttention {
         Ok(Self {
             cross_attention,
             layer_norm,
-            span: tracing::span!(tracing::Level::TRACE, "cross-attn"),
         })
     }
 
@@ -612,7 +588,6 @@ impl T5LayerCrossAttention {
         position_bias: Option<&Tensor>,
         key_value_states: &Tensor,
     ) -> Result<(Tensor, Option<Tensor>)> {
-        let _enter = self.span.enter();
         let normed_hidden_states = self.layer_norm.forward(hidden_states)?;
         let (ys, position_bias) = self.cross_attention.forward(
             &normed_hidden_states,
@@ -627,14 +602,6 @@ impl T5LayerCrossAttention {
     fn clear_kv_cache(&mut self) {
         self.cross_attention.clear_kv_cache()
     }
-
-    fn export_kv_cache(&self) -> AResult<T5AttentionCache> {
-        self.cross_attention.export_kv_cache()
-    }
-
-    fn import_kv_cache(&mut self, cache: &T5AttentionCache) -> AResult<()> {
-        self.cross_attention.import_kv_cache(cache)
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -642,12 +609,20 @@ struct T5Block {
     self_attn: T5LayerSelfAttention,
     cross_attn: Option<T5LayerCrossAttention>,
     ff: T5LayerFF,
-    span: tracing::Span,
 }
 
-struct T5BlockCache {
-    self_data: T5AttentionCache,
-    cross_data: Option<T5AttentionCache>,
+impl T5Block {
+    fn copy(&self) -> AResult<Self> {
+        let cross_attn = match &self.cross_attn {
+            None => None,
+            Some(cross_attn) => Some(cross_attn.copy()?),
+        };
+        Ok(Self {
+            self_attn: self.self_attn.copy()?,
+            cross_attn,
+            ff: self.ff.clone(),
+        })
+    }
 }
 
 impl T5Block {
@@ -675,7 +650,6 @@ impl T5Block {
             self_attn,
             cross_attn,
             ff,
-            span: tracing::span!(tracing::Level::TRACE, "block"),
         })
     }
 
@@ -685,7 +659,6 @@ impl T5Block {
         position_bias: Option<&Tensor>,
         encoder_hidden_states: Option<&Tensor>,
     ) -> Result<(Tensor, Option<Tensor>)> {
-        let _enter = self.span.enter();
         // TODO: Cache masks
         let mask = match self.cross_attn.is_some() {
             true => {
@@ -717,24 +690,6 @@ impl T5Block {
         self.self_attn.clear_kv_cache();
         self.cross_attn.iter_mut().for_each(|c| c.clear_kv_cache());
     }
-
-    fn export_kv_cache(&self) -> AResult<T5BlockCache> {
-        Ok(T5BlockCache {
-            self_data: self.self_attn.export_kv_cache()?,
-            cross_data: match &self.cross_attn {
-                None => None,
-                Some(l) => Some(l.export_kv_cache()?),
-            },
-        })
-    }
-
-    fn import_kv_cache(&mut self, cache: &T5BlockCache) -> AResult<()> {
-        self.self_attn.import_kv_cache(&cache.self_data)?;
-        if let Some(attn) = &mut self.cross_attn {
-            attn.import_kv_cache(cache.cross_data.as_ref().unwrap())?;
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -742,11 +697,20 @@ struct T5Stack {
     block: Vec<T5Block>,
     shared: Arc<Embedding>,
     final_layer_norm: T5LayerNorm,
-    span: tracing::Span,
 }
 
-pub struct T5StackCache {
-    data: Vec<T5BlockCache>,
+impl T5Stack {
+    fn copy(&self) -> AResult<Self> {
+        let mut block = Vec::<T5Block>::new();
+        for b in &self.block {
+            block.push(b.copy()?);
+        }
+        Ok(Self {
+            block,
+            shared: self.shared.clone(),
+            final_layer_norm: self.final_layer_norm.clone(),
+        })
+    }
 }
 
 impl T5Stack {
@@ -770,7 +734,6 @@ impl T5Stack {
             block,
             shared: shared.clone(),
             final_layer_norm,
-            span: tracing::span!(tracing::Level::TRACE, "stack"),
         })
     }
 
@@ -779,7 +742,6 @@ impl T5Stack {
         input_ids: &Tensor,
         encoder_hidden_states: Option<&Tensor>,
     ) -> Result<Tensor> {
-        let _enter = self.span.enter();
         let input_embeds = self.shared.as_ref().forward(input_ids)?;
         let mut hidden_states = input_embeds;
         let mut position_bias = None;
@@ -796,23 +758,6 @@ impl T5Stack {
     fn clear_kv_cache(&mut self) {
         self.block.iter_mut().for_each(|b| b.clear_kv_cache())
     }
-
-    fn export_kv_cache(&self) -> AResult<T5StackCache> {
-        let mut result = T5StackCache {
-            data: Vec::<T5BlockCache>::new(),
-        };
-        for b in self.block.iter() {
-            result.data.push(b.export_kv_cache()?);
-        }
-        Ok(result)
-    }
-
-    fn import_kv_cache(&mut self, cache: &T5StackCache) -> AResult<()> {
-        for i in 0..self.block.len() {
-            self.block[i].import_kv_cache(&cache.data[i])?;
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -824,16 +769,24 @@ pub struct T5Runner {
     lm_head: Option<Linear>,
     shared: Arc<Embedding>,
     device: Arc<Device>,
-    span_decode: tracing::Span,
-    span_decode_head: tracing::Span,
 }
 
 impl T5Runner {
-    pub fn load(
-        vb: Arc<VarBuilder>,
-        cfg: &Config,
-        device: Arc<Device>,
-    ) -> Result<Self> {
+    pub fn copy(&self) -> AResult<Self> {
+        Ok(Self {
+            encoder: self.encoder.copy()?,
+            decoder: self.decoder.copy()?,
+            d_model: self.d_model,
+            tie_word_embeddings: self.tie_word_embeddings,
+            lm_head: self.lm_head.clone(),
+            shared: self.shared.clone(),
+            device: self.device.clone(),
+        })
+    }
+}
+
+impl T5Runner {
+    pub fn load(vb: VarBuilder, cfg: &Config, device: Arc<Device>) -> Result<Self> {
         assert!(cfg.is_encoder_decoder);
         let d_model = cfg.d_model;
         let shared_vb = if vb.contains_tensor("shared.weight") {
@@ -841,7 +794,7 @@ impl T5Runner {
         } else {
             vb.pp("decoder").pp("embed_tokens")
         };
-        let shared = Embedding::new(cfg.vocab_size, cfg.d_model, shared_vb)?;
+        let shared = embedding(cfg.vocab_size, cfg.d_model, shared_vb)?;
         let shared = Arc::new(shared);
 
         let mut encoder_cfg = cfg.clone();
@@ -875,8 +828,6 @@ impl T5Runner {
             lm_head,
             shared,
             device,
-            span_decode: tracing::span!(tracing::Level::TRACE, "decode"),
-            span_decode_head: tracing::span!(tracing::Level::TRACE, "decode-head"),
         })
     }
 
@@ -889,7 +840,6 @@ impl T5Runner {
         decoder_input_ids: &Tensor,
         encoder_output: &Tensor,
     ) -> Result<Tensor> {
-        let _enter = self.span_decode.enter();
         let decoder_output = self
             .decoder
             .forward(decoder_input_ids, Some(encoder_output))?;
@@ -906,7 +856,6 @@ impl T5Runner {
             .squeeze(1)?)
             * scaling_factor)?;
         let output = {
-            let _enter = self.span_decode_head.enter();
             match self.lm_head {
                 None => sequence_output.matmul(&self.shared.embeddings().t()?)?,
                 Some(ref lm_head) => lm_head.forward(&sequence_output)?,
@@ -931,21 +880,5 @@ impl T5Runner {
     pub fn clear_kv_cache(&mut self) {
         self.encoder.clear_kv_cache();
         self.decoder.clear_kv_cache();
-    }
-
-    pub fn export_kv_cache(&self) -> AResult<(T5StackCache, T5StackCache)> {
-        Ok((
-            self.encoder.export_kv_cache()?,
-            self.decoder.export_kv_cache()?,
-        ))
-    }
-
-    pub fn import_kv_cache(
-        &mut self,
-        cache: &(T5StackCache, T5StackCache),
-    ) -> AResult<()> {
-        self.encoder.import_kv_cache(&cache.0)?;
-        self.decoder.import_kv_cache(&cache.1)?;
-        Ok(())
     }
 }
