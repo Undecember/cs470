@@ -24,12 +24,11 @@ fn main() -> Result<()> {
     let (mut draft_model, _) =
         T5Model::new(args.get_draft_repo(), device.clone(), args.get_model_args())?;
     info!("Loading target model...");
-    let (mut target_model, mut tokenizer) =
-        T5Model::new(args.get_target_repo(), device.clone(), {
-            let mut args = args.get_model_args();
-            args.no_kv_cache = true;
-            args
-        })?;
+    let (mut target_model, mut tokenizer) = T5Model::new(
+        args.get_target_repo(),
+        device.clone(),
+        args.get_model_args(),
+    )?;
 
     let prompt = format!("summarize: {}", args.prompt);
     let tokenizer = tokenizer

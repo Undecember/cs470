@@ -143,15 +143,15 @@ pub fn speculative_sampling(
         output_tokens.truncate(output_tokens.len() - cur_gamma);
         for j in 0..cur_gamma + 1 {
             let decoder_tokens = if target_model.config.use_cache {
-                Tensor::new(&output_tokens[i - 1..], &target_model.device)?
-                    .unsqueeze(0)?
+                let last_token = *output_tokens.last().unwrap();
+                Tensor::new(&[last_token], &target_model.device)?.unsqueeze(0)?
             } else {
                 Tensor::new(output_tokens.as_slice(), &target_model.device)?
                     .unsqueeze(0)?
             };
             let begin_time = Instant::now();
             let logits = target_model.get_logits(
-                0,
+                j,
                 &decoder_tokens,
                 &target_encoder_output,
                 &output_tokens,
@@ -166,6 +166,7 @@ pub fn speculative_sampling(
                 .push((end_time, TimingsReportItem::TargetEnd(i + j)));
             if j < cur_gamma {
                 output_tokens.push(new_tokens[j]);
+                target_model.runners[j + 1] = target_model.runners[j].copy()?;
             }
         }
         output_tokens.truncate(output_tokens.len() - cur_gamma);
@@ -188,6 +189,7 @@ pub fn speculative_sampling(
                 break;
             }
         }
+        log::info!("accept_cnt : {:?}, cur_gamma : {:?}", accept_cnt, cur_gamma);
         if let Some(token) = output_tokens.last() {
             if *token as usize == target_model.config.eos_token_id {
                 break;
@@ -219,7 +221,7 @@ pub fn speculative_sampling(
             }
         }
         target_model.runners[0] = target_model.runners[accept_cnt].copy()?;
-        if draft_model.config.use_cache && accept_cnt > 0 {
+        if draft_model.config.use_cache {
             if accept_cnt == cur_gamma {
                 draft_model.runners[0] = draft_model.runners[1].copy()?;
                 let decoder_tokens = Tensor::new(
