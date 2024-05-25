@@ -4,6 +4,7 @@ use candle_nn::{
     embedding, linear_no_bias, Activation, Embedding, Linear, VarBuilder,
 };
 use serde::Deserialize;
+use std::ops::Range;
 use std::sync::Arc;
 
 fn default_relative_attention_max_distance() -> usize {
@@ -889,11 +890,30 @@ impl T5Runner {
 
     pub fn get_logits(
         &mut self,
-        decoder_tokens: &Tensor,
+        mut range: Range<usize>,
         encoder_output: &Tensor,
         output_tokens: &[u32],
+        use_cache: bool,
     ) -> AResult<Tensor> {
-        let logits = self.decode(decoder_tokens, encoder_output)?.squeeze(0)?;
+        let logits = if use_cache {
+            log::info!("range size {:?}", range.end - range.start);
+            range.end -= 1;
+            let last_token = output_tokens[range.end];
+            for i in range {
+                let decoder_token =
+                    Tensor::new(&[output_tokens[i]], &self.device)?.unsqueeze(0)?;
+                self.decode(&decoder_token, encoder_output)?.squeeze(0)?;
+            }
+            let last_token =
+                Tensor::new(&[last_token], &self.device)?.unsqueeze(0)?;
+            self.decode(&last_token, encoder_output)?.squeeze(0)?
+        } else {
+            log::info!("should not hit");
+            let decoder_tokens =
+                Tensor::new(&output_tokens[..range.end], &self.device)?
+                    .unsqueeze(0)?;
+            self.decode(&decoder_tokens, encoder_output)?.squeeze(0)?
+        };
         if self.repeat_penalty == 1. {
             Ok(logits)
         } else {

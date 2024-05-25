@@ -51,17 +51,12 @@ pub fn single_sampling(
     model.init_runners(1)?;
     let encoder_output = model.runners[0].encode(&input_tokens)?;
     for i in 0..max_tokens {
-        let decoder_tokens = if i == 0 || !model.config.use_cache {
-            Tensor::new(output_tokens.as_slice(), &model.device)?.unsqueeze(0)?
-        } else {
-            let last_token = *output_tokens.last().unwrap();
-            Tensor::new(&[last_token], &model.device)?.unsqueeze(0)?
-        };
         let begin_time = Instant::now();
         let logits = model.runners[0].get_logits(
-            &decoder_tokens,
+            i..i + 1,
             &encoder_output,
             &output_tokens,
+            model.config.use_cache,
         )?;
         let p = model.p_from_logits(&logits)?;
         let next_token = model.sample_from_p(&p)?;
@@ -113,18 +108,12 @@ pub fn speculative_sampling(
         let mut new_tokens = Vec::<u32>::new();
         draft_model.runners[1] = draft_model.runners[0].copy()?;
         for j in 0..gamma {
-            let decoder_tokens = if draft_model.config.use_cache {
-                let last_token = *output_tokens.last().unwrap();
-                Tensor::new(&[last_token], &draft_model.device)?.unsqueeze(0)?
-            } else {
-                Tensor::new(output_tokens.as_slice(), &draft_model.device)?
-                    .unsqueeze(0)?
-            };
             let begin_time = Instant::now();
             let logits = draft_model.runners[1].get_logits(
-                &decoder_tokens,
+                i + j - 1..i + j,
                 &draft_encoder_output,
                 &output_tokens,
+                draft_model.config.use_cache,
             )?;
             qs.push(draft_model.p_from_logits(&logits)?);
             let next_token = draft_model.sample_from_p(&qs[j])?;
@@ -142,20 +131,13 @@ pub fn speculative_sampling(
             }
         }
         let cur_gamma = new_tokens.len();
-        output_tokens.truncate(output_tokens.len() - cur_gamma);
         for j in 0..cur_gamma + 1 {
-            let decoder_tokens = if target_model.config.use_cache {
-                let last_token = *output_tokens.last().unwrap();
-                Tensor::new(&[last_token], &target_model.device)?.unsqueeze(0)?
-            } else {
-                Tensor::new(output_tokens.as_slice(), &target_model.device)?
-                    .unsqueeze(0)?
-            };
             let begin_time = Instant::now();
             let logits = target_model.runners[j].get_logits(
-                &decoder_tokens,
+                i - 1..i + j,
                 &target_encoder_output,
                 &output_tokens,
+                target_model.config.use_cache,
             )?;
             ps.push(target_model.p_from_logits(&logits)?);
             let end_time = Instant::now();
@@ -165,10 +147,6 @@ pub fn speculative_sampling(
             result
                 .timings_report
                 .push((end_time, TimingsReportItem::TargetEnd(i + j)));
-            if j < cur_gamma {
-                output_tokens.push(new_tokens[j]);
-                target_model.runners[j + 1] = target_model.runners[j].copy()?;
-            }
         }
         output_tokens.truncate(output_tokens.len() - cur_gamma);
         let mut accept_cnt = 0;
@@ -221,31 +199,22 @@ pub fn speculative_sampling(
                 break;
             }
         }
-        target_model.runners[0] = target_model.runners[accept_cnt].copy()?;
+        target_model.promote_runner(accept_cnt)?;
         if draft_model.config.use_cache {
             if accept_cnt == cur_gamma {
-                draft_model.runners[0] = draft_model.runners[1].copy()?;
-                let decoder_tokens = Tensor::new(
-                    &[output_tokens[output_tokens.len() - 2]],
-                    &draft_model.device,
-                )?
-                .unsqueeze(0)?;
                 draft_model.runners[0].get_logits(
-                    &decoder_tokens,
+                    output_tokens.len() - 2..output_tokens.len() - 1,
                     &draft_encoder_output,
                     &output_tokens,
+                    draft_model.config.use_cache,
                 )?;
             } else {
-                for j in i - 1..output_tokens.len() - 1 {
-                    let decoder_tokens =
-                        Tensor::new(&[output_tokens[j]], &draft_model.device)?
-                            .unsqueeze(0)?;
-                    draft_model.runners[0].get_logits(
-                        &decoder_tokens,
-                        &draft_encoder_output,
-                        &output_tokens,
-                    )?;
-                }
+                draft_model.runners[0].get_logits(
+                    i - 1..output_tokens.len() - 1,
+                    &draft_encoder_output,
+                    &output_tokens,
+                    draft_model.config.use_cache,
+                )?;
             };
         }
     }
