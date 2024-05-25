@@ -962,7 +962,8 @@ impl T5Runner {
                 None => sequence_output.matmul(&self.shared.embeddings().t()?)?,
                 Some(ref lm_head) => lm_head.forward(&sequence_output)?,
             }
-        }.squeeze(0)?;
+        }
+        .squeeze(0)?;
         if self.repeat_penalty == 1. {
             Ok(logits)
         } else {

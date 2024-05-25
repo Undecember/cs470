@@ -44,8 +44,10 @@ fn main() -> Result<()> {
     info!("Start generating.");
     info!("[ {} ]\n", "Draft only".bold());
     let result = single_sampling(&mut draft_model, &tokens, args.max_tokens)?;
-    let dur = result.timings_report[result.timings_report.len() - 1].0
-        - result.timings_report[0].0;
+    let timings_report_read = result.timings_report.read().unwrap();
+    let dur = timings_report_read[timings_report_read.len() - 1].0
+        - timings_report_read[0].0;
+    drop(timings_report_read);
     info!(
         "Generation speed : {:.3} ms/tokens",
         dur.as_millis() as f64 / result.output_tokens.len() as f64
@@ -60,8 +62,10 @@ fn main() -> Result<()> {
 
     info!("[ {} ]\n", "Target only".bold());
     let result = single_sampling(&mut target_model, &tokens, args.max_tokens)?;
-    let dur = result.timings_report[result.timings_report.len() - 1].0
-        - result.timings_report[0].0;
+    let timings_report_read = result.timings_report.read().unwrap();
+    let dur = timings_report_read[timings_report_read.len() - 1].0
+        - timings_report_read[0].0;
+    drop(timings_report_read);
     info!(
         "Generation speed : {:.3} ms/tokens",
         dur.as_millis() as f64 / result.output_tokens.len() as f64
@@ -82,8 +86,10 @@ fn main() -> Result<()> {
         &tokens,
         args.max_tokens,
     )?;
-    let dur = result.timings_report[result.timings_report.len() - 1].0
-        - result.timings_report[0].0;
+    let timings_report_read = result.timings_report.read().unwrap();
+    let dur = timings_report_read[timings_report_read.len() - 1].0
+        - timings_report_read[0].0;
+    drop(timings_report_read);
     info!(
         "Generation speed : {:.3} ms/tokens",
         dur.as_millis() as f64 / result.output_tokens.len() as f64
@@ -95,7 +101,7 @@ fn main() -> Result<()> {
             .map_err(E::msg)?
             .cyan()
     );
-    // info!("Timings report :\n{:?}", result.timings_report);
+    info!("Timings report :\n{:?}", result.timings_report);
 
     Ok(())
 }
