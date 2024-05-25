@@ -79,19 +79,27 @@ impl T5Model {
     pub fn init_runners(&mut self, cnt: usize) -> Result<()> {
         self.runners.truncate(1);
         self.runners[0].clear_kv_cache();
-        for _ in 1..cnt {
-            self.runners.push(self.runners[0].copy()?);
+        let kv_cache = self.runners[0].export_kv_cache()?;
+        for i in 1..cnt {
+            self.runners.push(self.runners[0].clone());
+            self.runners[i].import_kv_cache(&kv_cache)?;
         }
         Ok(())
     }
 
-    pub fn promote_runner(&mut self, index: usize) -> Result<()> {
+    pub fn propagate_kv_cache(&mut self, index: usize) -> Result<()> {
+        let kv_cache = self.runners[index].export_kv_cache()?;
         for i in 0..self.runners.len() {
             if i == index {
                 continue;
             }
-            self.runners[i] = self.runners[index].copy()?;
+            self.runners[i].import_kv_cache(&kv_cache)?;
         }
         Ok(())
+    }
+
+    pub fn pass_kv_cache(&mut self, from: usize, to: usize) -> Result<()> {
+        let kv_cache = self.runners[from].export_kv_cache()?;
+        self.runners[to].import_kv_cache(&kv_cache)
     }
 }

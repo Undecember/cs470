@@ -311,26 +311,24 @@ struct T5Attention {
     kv_cache: Option<(Tensor, Tensor)>,
 }
 
+struct T5AttentionCache {
+    kv_cache: Option<(Tensor, Tensor)>,
+}
+
 impl T5Attention {
-    fn copy(&self) -> AResult<Self> {
+    fn export_kv_cache(&self) -> AResult<T5AttentionCache> {
         let kv_cache = match &self.kv_cache {
             None => None,
             Some((k, v)) => Some((k.copy()?, v.copy()?)),
         };
-        Ok(Self {
-            q: self.q.clone(),
-            k: self.k.clone(),
-            v: self.v.clone(),
-            o: self.o.clone(),
-            n_heads: self.n_heads,
-            d_kv: self.d_kv,
-            relative_attention_bias: self.relative_attention_bias.clone(),
-            relative_attention_num_buckets: self.relative_attention_num_buckets,
-            relative_attention_max_distance: self.relative_attention_max_distance,
-            inner_dim: self.inner_dim,
-            use_cache: self.use_cache,
-            kv_cache,
-        })
+        Ok(T5AttentionCache{kv_cache})
+    }
+
+    fn import_kv_cache(&mut self, cache: &T5AttentionCache) -> AResult<()> {
+        if let Some((k, v)) = &cache.kv_cache {
+            self.kv_cache = Some((k.copy()?, v.copy()?));
+        };
+        Ok(())
     }
 }
 
@@ -509,11 +507,13 @@ struct T5LayerSelfAttention {
 }
 
 impl T5LayerSelfAttention {
-    fn copy(&self) -> AResult<Self> {
-        Ok(Self {
-            self_attention: self.self_attention.copy()?,
-            layer_norm: self.layer_norm.clone(),
-        })
+    fn export_kv_cache(&self) -> AResult<T5AttentionCache> {
+        self.self_attention.export_kv_cache()
+    }
+
+    fn import_kv_cache(&mut self, cache: &T5AttentionCache) -> AResult<()> {
+        self.self_attention.import_kv_cache(cache)?;
+        Ok(())
     }
 }
 
@@ -557,11 +557,13 @@ struct T5LayerCrossAttention {
 }
 
 impl T5LayerCrossAttention {
-    fn copy(&self) -> AResult<Self> {
-        Ok(Self {
-            cross_attention: self.cross_attention.copy()?,
-            layer_norm: self.layer_norm.clone(),
-        })
+    fn export_kv_cache(&self) -> AResult<T5AttentionCache> {
+        self.cross_attention.export_kv_cache()
+    }
+
+    fn import_kv_cache(&mut self, cache: &T5AttentionCache) -> AResult<()> {
+        self.cross_attention.import_kv_cache(cache)?;
+        Ok(())
     }
 }
 
@@ -609,19 +611,32 @@ struct T5Block {
     ff: T5LayerFF,
 }
 
+struct T5BlockCache {
+    self_attn: T5AttentionCache,
+    cross_attn: Option<T5AttentionCache>,
+}
+
 impl T5Block {
-    fn copy(&self) -> AResult<Self> {
+    fn export_kv_cache(&self) -> AResult<T5BlockCache> {
         let cross_attn = match &self.cross_attn {
             None => None,
-            Some(cross_attn) => Some(cross_attn.copy()?),
+            Some(cross_attn) => Some(cross_attn.export_kv_cache()?),
         };
-        Ok(Self {
-            self_attn: self.self_attn.copy()?,
+        Ok(T5BlockCache {
+            self_attn: self.self_attn.export_kv_cache()?,
             cross_attn,
-            ff: self.ff.clone(),
         })
     }
+
+    fn import_kv_cache(&mut self, cache: &T5BlockCache) -> AResult<()> {
+        self.self_attn.import_kv_cache(&cache.self_attn)?;
+        if let Some(cross_attn) = &cache.cross_attn {
+            self.cross_attn.as_mut().unwrap().import_kv_cache(cross_attn)?;
+        }
+        Ok(())
+    }
 }
+
 
 impl T5Block {
     fn load(
@@ -697,17 +712,24 @@ struct T5Stack {
     final_layer_norm: T5LayerNorm,
 }
 
+struct T5StackCache {
+    block: Vec<T5BlockCache>,
+}
+
 impl T5Stack {
-    fn copy(&self) -> AResult<Self> {
-        let mut block = Vec::<T5Block>::new();
+    fn export_kv_cache(&self) -> AResult<T5StackCache> {
+        let mut block = Vec::<T5BlockCache>::new();
         for b in &self.block {
-            block.push(b.copy()?);
+            block.push(b.export_kv_cache()?);
         }
-        Ok(Self {
-            block,
-            shared: self.shared.clone(),
-            final_layer_norm: self.final_layer_norm.clone(),
-        })
+        Ok(T5StackCache { block })
+    }
+
+    fn import_kv_cache(&mut self, cache: &T5StackCache) -> AResult<()> {
+        for i in 0..self.block.len() {
+            self.block[i].import_kv_cache(&cache.block[i])?;
+        }
+        Ok(())
     }
 }
 
@@ -770,18 +792,23 @@ pub struct T5Runner {
     repeat_penalty: f32,
 }
 
+pub struct T5RunnerCache {
+    encoder: T5StackCache,
+    decoder: T5StackCache,
+}
+
 impl T5Runner {
-    pub fn copy(&self) -> AResult<Self> {
-        Ok(Self {
-            encoder: self.encoder.copy()?,
-            decoder: self.decoder.copy()?,
-            d_model: self.d_model,
-            tie_word_embeddings: self.tie_word_embeddings,
-            lm_head: self.lm_head.clone(),
-            shared: self.shared.clone(),
-            device: self.device.clone(),
-            repeat_penalty: self.repeat_penalty,
+    pub fn export_kv_cache(&self) -> AResult<T5RunnerCache> {
+        Ok(T5RunnerCache {
+            encoder: self.encoder.export_kv_cache()?,
+            decoder: self.decoder.export_kv_cache()?,
         })
+    }
+
+    pub fn import_kv_cache(&mut self, cache: &T5RunnerCache) -> AResult<()> {
+        self.encoder.import_kv_cache(&cache.encoder)?;
+        self.decoder.import_kv_cache(&cache.decoder)?;
+        Ok(())
     }
 }
 
@@ -896,19 +923,17 @@ impl T5Runner {
         use_cache: bool,
     ) -> AResult<Tensor> {
         let logits = if use_cache {
-            log::info!("range size {:?}", range.end - range.start);
             range.end -= 1;
             let last_token = output_tokens[range.end];
             for i in range {
                 let decoder_token =
                     Tensor::new(&[output_tokens[i]], &self.device)?.unsqueeze(0)?;
-                self.decode(&decoder_token, encoder_output)?.squeeze(0)?;
+                self.decoder.forward(&decoder_token, Some(encoder_output))?.squeeze(0)?;
             }
             let last_token =
                 Tensor::new(&[last_token], &self.device)?.unsqueeze(0)?;
             self.decode(&last_token, encoder_output)?.squeeze(0)?
         } else {
-            log::info!("should not hit");
             let decoder_tokens =
                 Tensor::new(&output_tokens[..range.end], &self.device)?
                     .unsqueeze(0)?;

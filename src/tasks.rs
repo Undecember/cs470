@@ -94,19 +94,19 @@ pub fn speculative_sampling(
     let input_tokens = Tensor::new(tokens, &draft_model.device)?.unsqueeze(0)?;
     draft_model.init_runners(2)?;
     let draft_encoder_output = draft_model.runners[0].encode(&input_tokens)?;
-    draft_model.promote_runner(0)?;
+    draft_model.propagate_kv_cache(0)?;
 
     let input_tokens = Tensor::new(tokens, &target_model.device)?.unsqueeze(0)?;
     target_model.init_runners(gamma + 1)?;
     let target_encoder_output = target_model.runners[0].encode(&input_tokens)?;
-    target_model.promote_runner(0)?;
+    target_model.propagate_kv_cache(0)?;
 
     while output_tokens.len() < max_tokens {
         let i = output_tokens.len();
         let mut ps = Vec::<Vec<f32>>::new();
         let mut qs = Vec::<Vec<f32>>::new();
         let mut new_tokens = Vec::<u32>::new();
-        draft_model.runners[1] = draft_model.runners[0].copy()?;
+        draft_model.pass_kv_cache(0, 1)?;
         for j in 0..gamma {
             let begin_time = Instant::now();
             let logits = draft_model.runners[1].get_logits(
@@ -199,7 +199,7 @@ pub fn speculative_sampling(
                 break;
             }
         }
-        target_model.promote_runner(accept_cnt)?;
+        target_model.propagate_kv_cache(accept_cnt)?;
         if draft_model.config.use_cache {
             if accept_cnt == cur_gamma {
                 draft_model.runners[0].get_logits(
