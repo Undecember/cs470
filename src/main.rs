@@ -3,7 +3,8 @@ use candle_core::Device;
 use colored::Colorize;
 use cs470::cmd_args::parse_args;
 use cs470::t5::T5Model;
-use cs470::tasks::{single_sampling, speculative_sampling};
+use cs470::tasks::single::sampling as single_sampling;
+use cs470::tasks::speculative::sampling as speculative_sampling;
 use log::info;
 use std::sync::Arc;
 
@@ -44,10 +45,7 @@ fn main() -> Result<()> {
     info!("Start generating.");
     info!("[ {} ]\n", "Draft only".bold());
     let result = single_sampling(&mut draft_model, &tokens, args.max_tokens)?;
-    let timings_report_read = result.timings_report.read().unwrap();
-    let dur = timings_report_read[timings_report_read.len() - 1].0
-        - timings_report_read[0].0;
-    drop(timings_report_read);
+    let dur = result.total_dur();
     info!(
         "Generation speed : {:.3} ms/tokens",
         dur.as_millis() as f64 / result.output_tokens.len() as f64
@@ -62,10 +60,7 @@ fn main() -> Result<()> {
 
     info!("[ {} ]\n", "Target only".bold());
     let result = single_sampling(&mut target_model, &tokens, args.max_tokens)?;
-    let timings_report_read = result.timings_report.read().unwrap();
-    let dur = timings_report_read[timings_report_read.len() - 1].0
-        - timings_report_read[0].0;
-    drop(timings_report_read);
+    let dur = result.total_dur();
     info!(
         "Generation speed : {:.3} ms/tokens",
         dur.as_millis() as f64 / result.output_tokens.len() as f64
@@ -86,10 +81,7 @@ fn main() -> Result<()> {
         &tokens,
         args.max_tokens,
     )?;
-    let timings_report_read = result.timings_report.read().unwrap();
-    let dur = timings_report_read[timings_report_read.len() - 1].0
-        - timings_report_read[0].0;
-    drop(timings_report_read);
+    let dur = result.total_dur();
     info!(
         "Generation speed : {:.3} ms/tokens",
         dur.as_millis() as f64 / result.output_tokens.len() as f64

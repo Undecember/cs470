@@ -316,12 +316,10 @@ struct T5AttentionCache {
 }
 
 impl T5Attention {
-    fn export_kv_cache(&self) -> AResult<T5AttentionCache> {
-        let kv_cache = match &self.kv_cache {
-            None => None,
-            Some((k, v)) => Some((k.clone(), v.clone())),
-        };
-        Ok(T5AttentionCache { kv_cache })
+    fn export_kv_cache(&self) -> T5AttentionCache {
+        T5AttentionCache {
+            kv_cache: self.kv_cache.as_ref().map(|(k, v)| (k.clone(), v.clone())),
+        }
     }
 
     fn import_kv_cache(&mut self, cache: &T5AttentionCache) -> AResult<()> {
@@ -507,7 +505,7 @@ struct T5LayerSelfAttention {
 }
 
 impl T5LayerSelfAttention {
-    fn export_kv_cache(&self) -> AResult<T5AttentionCache> {
+    fn export_kv_cache(&self) -> T5AttentionCache {
         self.self_attention.export_kv_cache()
     }
 
@@ -557,7 +555,7 @@ struct T5LayerCrossAttention {
 }
 
 impl T5LayerCrossAttention {
-    fn export_kv_cache(&self) -> AResult<T5AttentionCache> {
+    fn export_kv_cache(&self) -> T5AttentionCache {
         self.cross_attention.export_kv_cache()
     }
 
@@ -617,15 +615,14 @@ struct T5BlockCache {
 }
 
 impl T5Block {
-    fn export_kv_cache(&self) -> AResult<T5BlockCache> {
-        let cross_attn = match &self.cross_attn {
-            None => None,
-            Some(cross_attn) => Some(cross_attn.export_kv_cache()?),
-        };
-        Ok(T5BlockCache {
-            self_attn: self.self_attn.export_kv_cache()?,
-            cross_attn,
-        })
+    fn export_kv_cache(&self) -> T5BlockCache {
+        T5BlockCache {
+            self_attn: self.self_attn.export_kv_cache(),
+            cross_attn: self
+                .cross_attn
+                .as_ref()
+                .map(|cross_attn| cross_attn.export_kv_cache()),
+        }
     }
 
     fn import_kv_cache(&mut self, cache: &T5BlockCache) -> AResult<()> {
@@ -719,12 +716,12 @@ struct T5StackCache {
 }
 
 impl T5Stack {
-    fn export_kv_cache(&self) -> AResult<T5StackCache> {
+    fn export_kv_cache(&self) -> T5StackCache {
         let mut block = Vec::<T5BlockCache>::new();
         for b in &self.block {
-            block.push(b.export_kv_cache()?);
+            block.push(b.export_kv_cache());
         }
-        Ok(T5StackCache { block })
+        T5StackCache { block }
     }
 
     fn import_kv_cache(&mut self, cache: &T5StackCache) -> AResult<()> {
@@ -801,11 +798,11 @@ pub struct T5RunnerCache {
 }
 
 impl T5Runner {
-    pub fn export_kv_cache(&self) -> AResult<T5RunnerCache> {
-        Ok(T5RunnerCache {
-            encoder: self.encoder.export_kv_cache()?,
-            decoder: self.decoder.export_kv_cache()?,
-        })
+    pub fn export_kv_cache(&self) -> T5RunnerCache {
+        T5RunnerCache {
+            encoder: self.encoder.export_kv_cache(),
+            decoder: self.decoder.export_kv_cache(),
+        }
     }
 
     pub fn import_kv_cache(&mut self, cache: &T5RunnerCache) -> AResult<()> {

@@ -79,7 +79,7 @@ impl T5Model {
     pub fn init_runners(&mut self, cnt: usize) -> Result<()> {
         self.runners.truncate(1);
         self.runners[0].write().unwrap().clear_kv_cache();
-        let kv_cache = self.runners[0].read().unwrap().export_kv_cache()?;
+        let kv_cache = self.runners[0].read().unwrap().export_kv_cache();
         for i in 1..cnt {
             let runner = T5Runner::clone(&*self.runners[0].read().unwrap());
             self.runners.push(Arc::new(RwLock::new(runner)));
@@ -92,7 +92,7 @@ impl T5Model {
     }
 
     pub fn propagate_kv_cache(&mut self, index: usize) -> Result<()> {
-        let kv_cache = self.runners[index].read().unwrap().export_kv_cache()?;
+        let kv_cache = self.runners[index].read().unwrap().export_kv_cache();
         for i in 0..self.runners.len() {
             if i == index {
                 continue;
@@ -106,7 +106,7 @@ impl T5Model {
     }
 
     pub fn pass_kv_cache(&self, from: usize, to: usize) -> Result<()> {
-        let kv_cache = self.runners[from].read().unwrap().export_kv_cache()?;
+        let kv_cache = self.runners[from].read().unwrap().export_kv_cache();
         self.runners[to].write().unwrap().import_kv_cache(&kv_cache)
     }
 }
