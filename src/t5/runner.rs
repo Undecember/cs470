@@ -4,8 +4,7 @@ use candle_nn::{
     embedding, linear_no_bias, Activation, Embedding, Linear, VarBuilder,
 };
 use serde::Deserialize;
-use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 fn default_relative_attention_max_distance() -> usize {
     128
@@ -790,6 +789,7 @@ pub struct T5Runner {
     device: Arc<Device>,
     repeat_penalty: f32,
     last_decoder_output: Option<Tensor>,
+    use_cache: bool,
 }
 
 pub struct T5RunnerCache {
@@ -862,6 +862,7 @@ impl T5Runner {
             device,
             repeat_penalty,
             last_decoder_output: None,
+            use_cache: cfg.use_cache,
         })
     }
 
@@ -918,22 +919,20 @@ impl T5Runner {
 
     pub fn forward_kv_cache(
         &mut self,
-        range: Range<usize>,
+        index: usize,
         encoder_output: &Tensor,
-        output_tokens: &[u32],
-        use_cache: bool,
+        output_tokens: &RwLock<Vec<u32>>,
     ) -> AResult<()> {
-        if use_cache {
-            for i in range {
-                let decoder_token =
-                    Tensor::new(&[output_tokens[i]], &self.device)?.unsqueeze(0)?;
-                self.last_decoder_output =
-                    Some(self.decoder.forward(&decoder_token, Some(encoder_output))?);
-            }
+        let output_tokens = output_tokens.read().unwrap();
+        if self.use_cache {
+            let decoder_token =
+                Tensor::new(&[output_tokens[index]], &self.device)?.unsqueeze(0)?;
+            self.last_decoder_output =
+                Some(self.decoder.forward(&decoder_token, Some(encoder_output))?);
             Ok(())
         } else {
             let decoder_tokens =
-                Tensor::new(&output_tokens[..range.end], &self.device)?
+                Tensor::new(&output_tokens[..index + 1], &self.device)?
                     .unsqueeze(0)?;
             self.last_decoder_output = Some(
                 self.decoder
@@ -943,7 +942,10 @@ impl T5Runner {
         }
     }
 
-    pub fn get_logits(&mut self, output_tokens: &[u32]) -> AResult<Tensor> {
+    pub fn get_logits(
+        &mut self,
+        output_tokens: &RwLock<Vec<u32>>,
+    ) -> AResult<Tensor> {
         let scaling_factor = if self.tie_word_embeddings {
             (self.d_model as f64).sqrt()
         } else {
@@ -964,6 +966,7 @@ impl T5Runner {
         if self.repeat_penalty == 1. {
             Ok(logits)
         } else {
+            let output_tokens = output_tokens.read().unwrap();
             let start_at = output_tokens.len().saturating_sub(64);
             candle_transformers::utils::apply_repeat_penalty(
                 &logits,
