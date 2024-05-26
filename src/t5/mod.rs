@@ -1,6 +1,5 @@
 pub mod logits;
 pub mod runner;
-pub mod sampling;
 
 use anyhow::{Error as E, Result};
 use candle_core::{DType, Device};
@@ -8,7 +7,7 @@ use candle_nn::VarBuilder;
 use hf_hub::{api::sync::Api, Repo, RepoType};
 use rand::SeedableRng;
 use runner::T5Runner;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokenizers::Tokenizer;
 
 pub struct T5ModelArgs {
@@ -27,7 +26,7 @@ pub struct T5Model {
     pub top_p: Option<f64>,
     pub seed: u64,
     pub repeat_penalty: f32,
-    pub runners: Vec<T5Runner>,
+    pub runners: Vec<Arc<RwLock<T5Runner>>>,
 }
 
 impl T5Model {
@@ -55,7 +54,12 @@ impl T5Model {
             )?
         };
         let rng = rand::rngs::StdRng::seed_from_u64(args.seed);
-        let runners = vec![T5Runner::load(vb, &config, device.clone())?];
+        let runners = vec![Arc::new(RwLock::new(T5Runner::load(
+            vb,
+            &config,
+            device.clone(),
+            args.repeat_penalty,
+        )?))];
 
         Ok((
             Self {
@@ -74,20 +78,35 @@ impl T5Model {
 
     pub fn init_runners(&mut self, cnt: usize) -> Result<()> {
         self.runners.truncate(1);
-        self.runners[0].clear_kv_cache();
-        for _ in 1..cnt {
-            self.runners.push(self.runners[0].copy()?);
+        self.runners[0].write().unwrap().clear_kv_cache();
+        let kv_cache = self.runners[0].read().unwrap().export_kv_cache();
+        for i in 1..cnt {
+            let runner = T5Runner::clone(&*self.runners[0].read().unwrap());
+            self.runners.push(Arc::new(RwLock::new(runner)));
+            self.runners[i]
+                .write()
+                .unwrap()
+                .import_kv_cache(&kv_cache)?;
         }
         Ok(())
     }
 
-    pub fn promote_runner(&mut self, index: usize) -> Result<()> {
+    pub fn propagate_kv_cache(&mut self, index: usize) -> Result<()> {
+        let kv_cache = self.runners[index].read().unwrap().export_kv_cache();
         for i in 0..self.runners.len() {
             if i == index {
                 continue;
             }
-            self.runners[i] = self.runners[index].copy()?;
+            self.runners[i]
+                .write()
+                .unwrap()
+                .import_kv_cache(&kv_cache)?;
         }
         Ok(())
+    }
+
+    pub fn pass_kv_cache(&self, from: usize, to: usize) -> Result<()> {
+        let kv_cache = self.runners[from].read().unwrap().export_kv_cache();
+        self.runners[to].write().unwrap().import_kv_cache(&kv_cache)
     }
 }

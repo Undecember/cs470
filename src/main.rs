@@ -3,7 +3,8 @@ use candle_core::Device;
 use colored::Colorize;
 use cs470::cmd_args::parse_args;
 use cs470::t5::T5Model;
-use cs470::tasks::{single_sampling, speculative_sampling};
+use cs470::tasks::single::sampling as single_sampling;
+use cs470::tasks::speculative::sampling as speculative_sampling;
 use log::info;
 use std::sync::Arc;
 
@@ -44,8 +45,7 @@ fn main() -> Result<()> {
     info!("Start generating.");
     info!("[ {} ]\n", "Draft only".bold());
     let result = single_sampling(&mut draft_model, &tokens, args.max_tokens)?;
-    let dur = result.timings_report[result.timings_report.len() - 1].0
-        - result.timings_report[0].0;
+    let dur = result.total_dur();
     info!(
         "Generation speed : {:.3} ms/tokens",
         dur.as_millis() as f64 / result.output_tokens.len() as f64
@@ -57,11 +57,11 @@ fn main() -> Result<()> {
             .map_err(E::msg)?
             .cyan()
     );
+    result.export_timings("draft.timings", "draft")?;
 
     info!("[ {} ]\n", "Target only".bold());
     let result = single_sampling(&mut target_model, &tokens, args.max_tokens)?;
-    let dur = result.timings_report[result.timings_report.len() - 1].0
-        - result.timings_report[0].0;
+    let dur = result.total_dur();
     info!(
         "Generation speed : {:.3} ms/tokens",
         dur.as_millis() as f64 / result.output_tokens.len() as f64
@@ -73,6 +73,7 @@ fn main() -> Result<()> {
             .map_err(E::msg)?
             .cyan()
     );
+    result.export_timings("target.timings", "target")?;
 
     info!("[ {} ]\n", "Speculative sampling".bold());
     let result = speculative_sampling(
@@ -82,8 +83,7 @@ fn main() -> Result<()> {
         &tokens,
         args.max_tokens,
     )?;
-    let dur = result.timings_report[result.timings_report.len() - 1].0
-        - result.timings_report[0].0;
+    let dur = result.total_dur();
     info!(
         "Generation speed : {:.3} ms/tokens",
         dur.as_millis() as f64 / result.output_tokens.len() as f64
@@ -95,7 +95,7 @@ fn main() -> Result<()> {
             .map_err(E::msg)?
             .cyan()
     );
-    // info!("Timings report :\n{:?}", result.timings_report);
+    result.export_timings("speculative.timings")?;
 
     Ok(())
 }

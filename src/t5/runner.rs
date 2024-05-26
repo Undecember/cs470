@@ -1,12 +1,10 @@
-// T5 Text Model
-// https://github.com/huggingface/transformers/blob/main/src/transformers/models/t5/modeling_t5.py
-
-use anyhow::Result as AResult;
+use anyhow::{Error as E, Result as AResult};
 use candle_core::{DType, Device, Module, Result, Tensor, D};
 use candle_nn::{
     embedding, linear_no_bias, Activation, Embedding, Linear, VarBuilder,
 };
 use serde::Deserialize;
+use std::ops::Range;
 use std::sync::Arc;
 
 fn default_relative_attention_max_distance() -> usize {
@@ -313,26 +311,22 @@ struct T5Attention {
     kv_cache: Option<(Tensor, Tensor)>,
 }
 
+struct T5AttentionCache {
+    kv_cache: Option<(Tensor, Tensor)>,
+}
+
 impl T5Attention {
-    fn copy(&self) -> AResult<Self> {
-        let kv_cache = match &self.kv_cache {
-            None => None,
-            Some((k, v)) => Some((k.copy()?, v.copy()?)),
+    fn export_kv_cache(&self) -> T5AttentionCache {
+        T5AttentionCache {
+            kv_cache: self.kv_cache.as_ref().map(|(k, v)| (k.clone(), v.clone())),
+        }
+    }
+
+    fn import_kv_cache(&mut self, cache: &T5AttentionCache) -> AResult<()> {
+        if let Some((k, v)) = &cache.kv_cache {
+            self.kv_cache = Some((k.copy()?, v.copy()?));
         };
-        Ok(Self {
-            q: self.q.clone(),
-            k: self.k.clone(),
-            v: self.v.clone(),
-            o: self.o.clone(),
-            n_heads: self.n_heads,
-            d_kv: self.d_kv,
-            relative_attention_bias: self.relative_attention_bias.clone(),
-            relative_attention_num_buckets: self.relative_attention_num_buckets,
-            relative_attention_max_distance: self.relative_attention_max_distance,
-            inner_dim: self.inner_dim,
-            use_cache: self.use_cache,
-            kv_cache,
-        })
+        Ok(())
     }
 }
 
@@ -511,11 +505,13 @@ struct T5LayerSelfAttention {
 }
 
 impl T5LayerSelfAttention {
-    fn copy(&self) -> AResult<Self> {
-        Ok(Self {
-            self_attention: self.self_attention.copy()?,
-            layer_norm: self.layer_norm.clone(),
-        })
+    fn export_kv_cache(&self) -> T5AttentionCache {
+        self.self_attention.export_kv_cache()
+    }
+
+    fn import_kv_cache(&mut self, cache: &T5AttentionCache) -> AResult<()> {
+        self.self_attention.import_kv_cache(cache)?;
+        Ok(())
     }
 }
 
@@ -559,11 +555,13 @@ struct T5LayerCrossAttention {
 }
 
 impl T5LayerCrossAttention {
-    fn copy(&self) -> AResult<Self> {
-        Ok(Self {
-            cross_attention: self.cross_attention.copy()?,
-            layer_norm: self.layer_norm.clone(),
-        })
+    fn export_kv_cache(&self) -> T5AttentionCache {
+        self.cross_attention.export_kv_cache()
+    }
+
+    fn import_kv_cache(&mut self, cache: &T5AttentionCache) -> AResult<()> {
+        self.cross_attention.import_kv_cache(cache)?;
+        Ok(())
     }
 }
 
@@ -611,17 +609,31 @@ struct T5Block {
     ff: T5LayerFF,
 }
 
+struct T5BlockCache {
+    self_attn: T5AttentionCache,
+    cross_attn: Option<T5AttentionCache>,
+}
+
 impl T5Block {
-    fn copy(&self) -> AResult<Self> {
-        let cross_attn = match &self.cross_attn {
-            None => None,
-            Some(cross_attn) => Some(cross_attn.copy()?),
-        };
-        Ok(Self {
-            self_attn: self.self_attn.copy()?,
-            cross_attn,
-            ff: self.ff.clone(),
-        })
+    fn export_kv_cache(&self) -> T5BlockCache {
+        T5BlockCache {
+            self_attn: self.self_attn.export_kv_cache(),
+            cross_attn: self
+                .cross_attn
+                .as_ref()
+                .map(|cross_attn| cross_attn.export_kv_cache()),
+        }
+    }
+
+    fn import_kv_cache(&mut self, cache: &T5BlockCache) -> AResult<()> {
+        self.self_attn.import_kv_cache(&cache.self_attn)?;
+        if let Some(cross_attn) = &cache.cross_attn {
+            self.cross_attn
+                .as_mut()
+                .unwrap()
+                .import_kv_cache(cross_attn)?;
+        }
+        Ok(())
     }
 }
 
@@ -699,17 +711,24 @@ struct T5Stack {
     final_layer_norm: T5LayerNorm,
 }
 
+struct T5StackCache {
+    block: Vec<T5BlockCache>,
+}
+
 impl T5Stack {
-    fn copy(&self) -> AResult<Self> {
-        let mut block = Vec::<T5Block>::new();
+    fn export_kv_cache(&self) -> T5StackCache {
+        let mut block = Vec::<T5BlockCache>::new();
         for b in &self.block {
-            block.push(b.copy()?);
+            block.push(b.export_kv_cache());
         }
-        Ok(Self {
-            block,
-            shared: self.shared.clone(),
-            final_layer_norm: self.final_layer_norm.clone(),
-        })
+        T5StackCache { block }
+    }
+
+    fn import_kv_cache(&mut self, cache: &T5StackCache) -> AResult<()> {
+        for i in 0..self.block.len() {
+            self.block[i].import_kv_cache(&cache.block[i])?;
+        }
+        Ok(())
     }
 }
 
@@ -769,24 +788,37 @@ pub struct T5Runner {
     lm_head: Option<Linear>,
     shared: Arc<Embedding>,
     device: Arc<Device>,
+    repeat_penalty: f32,
+    last_decoder_output: Option<Tensor>,
+}
+
+pub struct T5RunnerCache {
+    encoder: T5StackCache,
+    decoder: T5StackCache,
 }
 
 impl T5Runner {
-    pub fn copy(&self) -> AResult<Self> {
-        Ok(Self {
-            encoder: self.encoder.copy()?,
-            decoder: self.decoder.copy()?,
-            d_model: self.d_model,
-            tie_word_embeddings: self.tie_word_embeddings,
-            lm_head: self.lm_head.clone(),
-            shared: self.shared.clone(),
-            device: self.device.clone(),
-        })
+    pub fn export_kv_cache(&self) -> T5RunnerCache {
+        T5RunnerCache {
+            encoder: self.encoder.export_kv_cache(),
+            decoder: self.decoder.export_kv_cache(),
+        }
+    }
+
+    pub fn import_kv_cache(&mut self, cache: &T5RunnerCache) -> AResult<()> {
+        self.encoder.import_kv_cache(&cache.encoder)?;
+        self.decoder.import_kv_cache(&cache.decoder)?;
+        Ok(())
     }
 }
 
 impl T5Runner {
-    pub fn load(vb: VarBuilder, cfg: &Config, device: Arc<Device>) -> Result<Self> {
+    pub fn load(
+        vb: VarBuilder,
+        cfg: &Config,
+        device: Arc<Device>,
+        repeat_penalty: f32,
+    ) -> Result<Self> {
         assert!(cfg.is_encoder_decoder);
         let d_model = cfg.d_model;
         let shared_vb = if vb.contains_tensor("shared.weight") {
@@ -828,6 +860,8 @@ impl T5Runner {
             lm_head,
             shared,
             device,
+            repeat_penalty,
+            last_decoder_output: None,
         })
     }
 
@@ -880,5 +914,63 @@ impl T5Runner {
     pub fn clear_kv_cache(&mut self) {
         self.encoder.clear_kv_cache();
         self.decoder.clear_kv_cache();
+    }
+
+    pub fn forward_kv_cache(
+        &mut self,
+        range: Range<usize>,
+        encoder_output: &Tensor,
+        output_tokens: &[u32],
+        use_cache: bool,
+    ) -> AResult<()> {
+        if use_cache {
+            for i in range {
+                let decoder_token =
+                    Tensor::new(&[output_tokens[i]], &self.device)?.unsqueeze(0)?;
+                self.last_decoder_output =
+                    Some(self.decoder.forward(&decoder_token, Some(encoder_output))?);
+            }
+            Ok(())
+        } else {
+            let decoder_tokens =
+                Tensor::new(&output_tokens[..range.end], &self.device)?
+                    .unsqueeze(0)?;
+            self.last_decoder_output = Some(
+                self.decoder
+                    .forward(&decoder_tokens, Some(encoder_output))?,
+            );
+            Ok(())
+        }
+    }
+
+    pub fn get_logits(&mut self, output_tokens: &[u32]) -> AResult<Tensor> {
+        let scaling_factor = if self.tie_word_embeddings {
+            (self.d_model as f64).sqrt()
+        } else {
+            1.0
+        };
+        let decoder_output = self.last_decoder_output.as_ref().unwrap();
+        let sequence_output = ((decoder_output
+            .narrow(1, decoder_output.dim(1)? - 1, 1)?
+            .squeeze(1)?)
+            * scaling_factor)?;
+        let logits = {
+            match self.lm_head {
+                None => sequence_output.matmul(&self.shared.embeddings().t()?)?,
+                Some(ref lm_head) => lm_head.forward(&sequence_output)?,
+            }
+        }
+        .squeeze(0)?;
+        if self.repeat_penalty == 1. {
+            Ok(logits)
+        } else {
+            let start_at = output_tokens.len().saturating_sub(64);
+            candle_transformers::utils::apply_repeat_penalty(
+                &logits,
+                self.repeat_penalty,
+                &output_tokens[start_at..],
+            )
+            .map_err(E::msg)
+        }
     }
 }
