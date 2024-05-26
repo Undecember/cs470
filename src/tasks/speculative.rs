@@ -77,6 +77,36 @@ impl SamplingResult {
         }
         mx - mn
     }
+
+    pub fn export_timings(&self, file_path: &str) -> Result<()> {
+        let mut buf = String::new();
+
+        let mut start_time = self.timings_report[0].time_range.0;
+        for item in &self.timings_report {
+            if start_time > item.time_range.0 {
+                start_time = item.time_range.0;
+            }
+        }
+        for item in &self.timings_report {
+            buf += format!("{} ", item.token_index).as_str();
+            buf += match item.runner_type {
+                RunnerType::Draft => "draft",
+                RunnerType::Target => "target",
+            };
+            buf += match item.item_type {
+                ActionType::ForwardKV => " forward_kv",
+                ActionType::LogitsCalc => " logits_calc",
+                ActionType::Sampling => " sampling",
+            };
+            buf += format!(" {} {}\n",
+                (item.time_range.0 - start_time).as_millis() as f64,
+                (item.time_range.1 - start_time).as_millis() as f64,
+                ).as_str();
+        }
+
+        std::fs::write(file_path, buf.as_str())?;
+        Ok(())
+    }
 }
 
 pub fn sampling(

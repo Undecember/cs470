@@ -57,6 +57,7 @@ fn main() -> Result<()> {
             .map_err(E::msg)?
             .cyan()
     );
+    result.export_timings("draft.timings", "draft")?;
 
     info!("[ {} ]\n", "Target only".bold());
     let result = single_sampling(&mut target_model, &tokens, args.max_tokens)?;
@@ -72,6 +73,7 @@ fn main() -> Result<()> {
             .map_err(E::msg)?
             .cyan()
     );
+    result.export_timings("target.timings", "target")?;
 
     info!("[ {} ]\n", "Speculative sampling".bold());
     let result = speculative_sampling(
@@ -93,7 +95,7 @@ fn main() -> Result<()> {
             .map_err(E::msg)?
             .cyan()
     );
-    info!("Timings report :\n{:?}", result.timings_report);
+    result.export_timings("speculative.timings")?;
 
     Ok(())
 }

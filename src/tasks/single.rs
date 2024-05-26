@@ -3,14 +3,14 @@ use anyhow::Result;
 use candle_core::Tensor;
 use std::time::{Instant, Duration};
 
-pub enum TimingsReportItemType {
+pub enum ActionType {
     ForwardKV,
     LogitsCalc,
     Sampling,
 }
 
 pub struct TimingsReportItem {
-    item_type: TimingsReportItemType,
+    item_type: ActionType,
     token_index: usize,
     time_range: (Instant, Instant),
 }
@@ -34,7 +34,7 @@ impl SamplingResult {
         }
     }
 
-    fn begin(&mut self, item_type: TimingsReportItemType, token_index: usize) {
+    fn begin(&mut self, item_type: ActionType, token_index: usize) {
         self.timings_report.push(TimingsReportItem {
             item_type,
             token_index,
@@ -60,6 +60,33 @@ impl SamplingResult {
         }
         mx - mn
     }
+
+    pub fn export_timings(&self, file_path: &str, runner_type: &str) -> Result<()> {
+        let mut buf = String::new();
+
+        let mut start_time = self.timings_report[0].time_range.0;
+        for item in &self.timings_report {
+            if start_time > item.time_range.0 {
+                start_time = item.time_range.0;
+            }
+        }
+        for item in &self.timings_report {
+            buf += format!("{} ", item.token_index).as_str();
+            buf += runner_type;
+            buf += match item.item_type {
+                ActionType::ForwardKV => " forward_kv",
+                ActionType::LogitsCalc => " logits_calc",
+                ActionType::Sampling => " sampling",
+            };
+            buf += format!(" {} {}\n",
+                (item.time_range.0 - start_time).as_millis() as f64,
+                (item.time_range.1 - start_time).as_millis() as f64,
+                ).as_str();
+        }
+
+        std::fs::write(file_path, buf.as_str())?;
+        Ok(())
+    }
 }
 
 pub fn sampling(
@@ -78,7 +105,7 @@ pub fn sampling(
     model.init_runners(1)?;
     let encoder_output = model.runners[0].write().unwrap().encode(&input_tokens)?;
     for i in 0..max_tokens {
-        result.begin(TimingsReportItemType::ForwardKV, i);
+        result.begin(ActionType::ForwardKV, i);
         model.runners[0].write().unwrap().forward_kv_cache(
             i..i + 1,
             &encoder_output,
@@ -86,13 +113,13 @@ pub fn sampling(
             model.config.use_cache,
         )?;
         result.end();
-        result.begin(TimingsReportItemType::LogitsCalc, i);
+        result.begin(ActionType::LogitsCalc, i);
         let logits = model.runners[0]
             .write()
             .unwrap()
             .get_logits(output_tokens.as_slice())?;
         result.end();
-        result.begin(TimingsReportItemType::Sampling, i);
+        result.begin(ActionType::Sampling, i);
         let p = model.p_from_logits(&logits)?;
         let next_token = model.sample_from_p(&p)?;
         result.end();
