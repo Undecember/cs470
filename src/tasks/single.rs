@@ -1,7 +1,8 @@
 use crate::t5::T5Model;
 use anyhow::Result;
 use candle_core::Tensor;
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
+use std::sync::RwLock;
 
 pub enum ActionType {
     ForwardKV,
@@ -78,10 +79,13 @@ impl SamplingResult {
                 ActionType::LogitsCalc => " logits_calc",
                 ActionType::Sampling => " sampling",
             };
-            buf += format!(" {} {}\n",
-                (item.time_range.0 - start_time).as_millis() as f64,
-                (item.time_range.1 - start_time).as_millis() as f64,
-                ).as_str();
+            buf += format!(
+                " {} {} {}\n",
+                (item.time_range.0 - start_time).as_micros(),
+                (item.time_range.1 - start_time).as_micros(),
+                (item.time_range.1 - item.time_range.0).as_micros(),
+            )
+            .as_str();
         }
 
         std::fs::write(file_path, buf.as_str())?;
@@ -95,7 +99,7 @@ pub fn sampling(
     max_tokens: usize,
 ) -> Result<SamplingResult> {
     let mut result = SamplingResult::new();
-    let mut output_tokens = [model
+    let output_tokens = [model
         .config
         .decoder_start_token_id
         .unwrap_or(model.config.pad_token_id) as u32]
@@ -104,20 +108,20 @@ pub fn sampling(
     let input_tokens = Tensor::new(tokens, &model.device)?.unsqueeze(0)?;
     model.init_runners(1)?;
     let encoder_output = model.runners[0].write().unwrap().encode(&input_tokens)?;
+    let output_tokens = RwLock::new(output_tokens);
     for i in 0..max_tokens {
         result.begin(ActionType::ForwardKV, i);
         model.runners[0].write().unwrap().forward_kv_cache(
-            i..i + 1,
+            i,
             &encoder_output,
             &output_tokens,
-            model.config.use_cache,
         )?;
         result.end();
         result.begin(ActionType::LogitsCalc, i);
         let logits = model.runners[0]
             .write()
             .unwrap()
-            .get_logits(output_tokens.as_slice())?;
+            .get_logits(&output_tokens)?;
         result.end();
         result.begin(ActionType::Sampling, i);
         let p = model.p_from_logits(&logits)?;
@@ -126,8 +130,8 @@ pub fn sampling(
         if next_token as usize == model.config.eos_token_id {
             break;
         }
-        output_tokens.push(next_token);
+        output_tokens.write().unwrap().push(next_token);
     }
-    result.output_tokens = output_tokens;
+    result.output_tokens.clone_from(&output_tokens.read().unwrap());
     Ok(result)
 }

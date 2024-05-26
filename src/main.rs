@@ -77,8 +77,8 @@ fn main() -> Result<()> {
 
     info!("[ {} ]\n", "Speculative sampling".bold());
     let result = speculative_sampling(
-        &mut draft_model,
-        &mut target_model,
+        draft_model,
+        target_model,
         args.gamma,
         &tokens,
         args.max_tokens,

@@ -1,24 +1,27 @@
+use crate::t5::runner::T5Runner;
 use crate::t5::T5Model;
-use anyhow::{Error as E, Result};
+use anyhow::Result;
 use candle_core::Tensor;
+use crossbeam_epoch::{pin, Atomic, Owned};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
-use std::thread::scope;
-use std::time::{Instant, Duration};
+use std::thread;
+use std::time::{Duration, Instant};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum RunnerType {
     Draft,
     Target,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum ActionType {
     ForwardKV,
     LogitsCalc,
     Sampling,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TimingsReportItem {
     runner_type: RunnerType,
     item_type: ActionType,
@@ -98,10 +101,13 @@ impl SamplingResult {
                 ActionType::LogitsCalc => " logits_calc",
                 ActionType::Sampling => " sampling",
             };
-            buf += format!(" {} {}\n",
-                (item.time_range.0 - start_time).as_millis() as f64,
-                (item.time_range.1 - start_time).as_millis() as f64,
-                ).as_str();
+            buf += format!(
+                " {} {} {}\n",
+                (item.time_range.0 - start_time).as_micros(),
+                (item.time_range.1 - start_time).as_micros(),
+                (item.time_range.1 - item.time_range.0).as_micros(),
+            )
+            .as_str();
         }
 
         std::fs::write(file_path, buf.as_str())?;
@@ -109,22 +115,115 @@ impl SamplingResult {
     }
 }
 
+struct WorkerControlBlock {
+    kill: AtomicBool,
+    reset: AtomicBool,
+    params: Arc<Atomic<(Option<usize>, bool)>>, // DS(n-1) && TF(n-1)
+    encoder_output: Arc<Tensor>,
+    output_tokens: Arc<RwLock<Vec<u32>>>,
+    runner: Arc<RwLock<T5Runner>>,
+    next_params: Arc<Atomic<(Option<usize>, bool)>>,
+    next_runner: Option<Arc<RwLock<T5Runner>>>,
+    logits: Arc<Atomic<Tensor>>,
+    result: Arc<RwLock<SamplingResult>>,
+}
+
+fn worker(wcb: Arc<WorkerControlBlock>) -> Result<()> {
+    let guard = &pin();
+    wcb.kill.store(false, Ordering::Release);
+    'l: loop {
+        while {
+            if wcb.kill.load(Ordering::Acquire) {
+                break 'l;
+            }
+            if wcb.reset.load(Ordering::Acquire) {
+                wcb.reset.store(false, Ordering::Release);
+                wcb.params
+                    .store(Owned::new((None, false)), Ordering::Release);
+                true
+            } else {
+                let params =
+                    unsafe { wcb.params.load(Ordering::Acquire, guard).deref() };
+                params.0.is_none() || !params.1
+            }
+        } {}
+        let params = unsafe { wcb.params.load(Ordering::Acquire, guard).deref() };
+        let index = params.0.unwrap();
+        let mut runner_write = wcb.runner.write().unwrap();
+        let mut result_write = wcb.result.write().unwrap();
+        // ForwardKV
+        result_write.begin(RunnerType::Target, ActionType::ForwardKV, index);
+        runner_write.forward_kv_cache(
+            index - 1,
+            &wcb.encoder_output,
+            &wcb.output_tokens,
+        )?;
+        result_write.end();
+        if wcb.reset.load(Ordering::Acquire) {
+            wcb.reset.store(false, Ordering::Release);
+            wcb.params
+                .store(Owned::new((None, false)), Ordering::Release);
+            continue;
+        }
+        if let Some(next_runner) = &wcb.next_runner {
+            next_runner
+                .write()
+                .unwrap()
+                .import_kv_cache(&runner_write.export_kv_cache())?;
+        }
+        let mut next_params_shared = wcb.next_params.load(Ordering::Acquire, guard);
+        while {
+            let next_params = unsafe { next_params_shared.deref() };
+            let new_params = Owned::new((next_params.0, true));
+            match wcb.next_params.compare_exchange(
+                next_params_shared,
+                new_params,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+                guard,
+            ) {
+                Ok(_) => false,
+                Err(p) => {
+                    next_params_shared = p.current;
+                    drop(p.new);
+                    true
+                }
+            }
+        } {}
+        if wcb.reset.load(Ordering::Acquire) {
+            wcb.reset.store(false, Ordering::Release);
+            wcb.params
+                .store(Owned::new((None, false)), Ordering::Release);
+            continue;
+        }
+        // LogitsCalc
+        result_write.begin(RunnerType::Target, ActionType::LogitsCalc, index);
+        let logits = runner_write.get_logits(&wcb.output_tokens)?;
+        wcb.logits.store(Owned::new(logits), Ordering::Release);
+        result_write.end();
+        wcb.reset.store(false, Ordering::Release);
+        wcb.params.store(Owned::new((None, false)), Ordering::Release);
+    }
+    Ok(())
+}
+
 pub fn sampling(
-    draft_model: &mut T5Model,
-    target_model: &mut T5Model,
+    mut draft_model: T5Model,
+    mut target_model: T5Model,
     gamma: usize,
     tokens: &[u32],
     max_tokens: usize,
 ) -> Result<SamplingResult> {
-    let mut target_model = Arc::new(target_model);
+    let guard = &pin();
 
     let mut result = SamplingResult::new();
-    let mut output_tokens = [target_model
+    let output_tokens = [target_model
         .config
         .decoder_start_token_id
         .unwrap_or(target_model.config.pad_token_id)
         as u32]
     .to_vec();
+    let eos_token_id = target_model.config.eos_token_id as u32;
 
     let input_tokens = Tensor::new(tokens, &draft_model.device)?.unsqueeze(0)?;
     draft_model.init_runners(2)?;
@@ -132,171 +231,246 @@ pub fn sampling(
         .write()
         .unwrap()
         .encode(&input_tokens)?;
+    let draft_encoder_output = Arc::new(draft_encoder_output);
     draft_model.propagate_kv_cache(0)?;
 
     let input_tokens = Tensor::new(tokens, &target_model.device)?.unsqueeze(0)?;
-    let target_mut = Arc::get_mut(&mut target_model).unwrap();
-    target_mut.init_runners(gamma + 1)?;
-    let target_encoder_output = target_mut.runners[0]
+    target_model.init_runners(gamma + 1)?;
+    let target_encoder_output = target_model.runners[0]
         .write()
         .unwrap()
         .encode(&input_tokens)?;
-    target_mut.propagate_kv_cache(0)?;
+    let target_encoder_output = Arc::new(target_encoder_output);
+    target_model.propagate_kv_cache(0)?;
 
-    while output_tokens.len() < max_tokens {
-        let i = output_tokens.len();
+    let mut workers = Vec::new();
+    let mut wcbs = Vec::new();
+    let mut paramss = Vec::new();
+    for _ in 0..gamma + 2 {
+        paramss.push(Arc::new(Atomic::new((Option::<usize>::None, false))));
+    }
+    let output_tokens = Arc::new(RwLock::new(output_tokens));
+    for i in 0..gamma + 1 {
+        wcbs.push(Arc::new(WorkerControlBlock {
+            kill: AtomicBool::new(true),
+            reset: AtomicBool::new(false),
+            params: paramss[i].clone(),
+            encoder_output: target_encoder_output.clone(),
+            output_tokens: output_tokens.clone(),
+            runner: target_model.runners[i].clone(),
+            next_params: paramss[i + 1].clone(),
+            next_runner: if i < gamma {
+                Some(target_model.runners[i + 1].clone())
+            } else {
+                None
+            },
+            logits: Arc::new(Atomic::null()),
+            result: Arc::new(RwLock::new(SamplingResult::new())),
+        }));
+        let wcb = wcbs[i].clone();
+        workers.push(thread::spawn(move || {
+            if let Err(e) = worker(wcb) {
+                panic!("worker panic: {:?}", e);
+            }
+        }));
+    }
+    for wcb in &wcbs {
+        while wcb.kill.load(Ordering::Acquire) {
+            std::hint::spin_loop();
+        }
+    }
+    log::info!("Workers ready.");
+
+    while output_tokens.read().unwrap().len() < max_tokens {
+        let i = output_tokens.read().unwrap().len();
         let mut qs = Vec::<Vec<f32>>::new();
         let mut new_tokens = Vec::<u32>::new();
         draft_model.pass_kv_cache(0, 1)?;
+        wcbs[0]
+            .params
+            .store(Owned::new((Some(i), true)), Ordering::Release);
         for j in 0..gamma {
+            // ForwardKV
             result.begin(RunnerType::Draft, ActionType::ForwardKV, i + j);
             draft_model.runners[1].write().unwrap().forward_kv_cache(
-                i + j - 1..i + j,
+                i + j - 1,
                 &draft_encoder_output,
                 &output_tokens,
-                draft_model.config.use_cache,
             )?;
             result.end();
+            // LogitsCalc
             result.begin(RunnerType::Draft, ActionType::LogitsCalc, i + j);
             let logits = draft_model.runners[1]
                 .write()
                 .unwrap()
-                .get_logits(output_tokens.as_slice())?;
+                .get_logits(&output_tokens)?;
             result.end();
+            // Sampling
             result.begin(RunnerType::Draft, ActionType::Sampling, i + j);
             qs.push(draft_model.p_from_logits(&logits)?);
             let next_token = draft_model.sample_from_p(&qs[j])?;
             result.end();
-            output_tokens.push(next_token);
+            output_tokens.write().unwrap().push(next_token);
             new_tokens.push(next_token);
-            if next_token as usize == draft_model.config.eos_token_id {
+            if next_token == eos_token_id {
                 break;
             }
         }
         let cur_gamma = new_tokens.len();
-        let mut ps = Vec::<RwLock<Result<Vec<f32>>>>::new();
-        let mut timings = Vec::<RwLock<SamplingResult>>::new();
-        for _ in 0..cur_gamma + 1 {
-            ps.push(RwLock::new(Ok(Vec::<f32>::new())));
-            timings.push(RwLock::new(SamplingResult::new()));
-        }
-        let ps = Arc::new(ps);
-        let timings = Arc::new(timings);
-        scope(|s| {
-            for j in 0..cur_gamma + 1 {
-                result.begin(RunnerType::Target, ActionType::ForwardKV, i + j);
-                let _ = target_model.runners[j].write().unwrap().forward_kv_cache(
-                    i + j - 1..i + j,
-                    &target_encoder_output,
-                    &output_tokens,
-                    target_model.config.use_cache,
-                );
-                result.end();
-                if j < cur_gamma {
-                    let _ = target_model.pass_kv_cache(j, j + 1);
-                }
-
-                let ps = ps.clone();
-                let target_model = target_model.clone();
-                let timings = timings.clone();
-                let output_slice = output_tokens.as_slice();
-                s.spawn(move || {
-                    let mut timings = timings[j].write().unwrap();
-                    timings.begin(RunnerType::Target, ActionType::LogitsCalc, i + j);
-                    let logits = target_model.runners[j]
-                        .write()
-                        .unwrap()
-                        .get_logits(output_slice);
-                    if let Err(e) = logits {
-                        *ps[j].write().unwrap() = Err(E::msg(e));
-                        return;
+        for j in 0..cur_gamma {
+            // Launch target
+            let mut params_shared = wcbs[j + 1].params.load(Ordering::Acquire, guard);
+            while {
+                let params = unsafe { params_shared.deref() };
+                let new_params = Owned::new((Some(i + j + 1), params.1));
+                match wcbs[j + 1].params.compare_exchange(
+                    params_shared,
+                    new_params,
+                    Ordering::AcqRel,
+                    Ordering::Relaxed,
+                    guard,
+                ) {
+                    Ok(_) => false,
+                    Err(p) => {
+                        params_shared = p.current;
+                        drop(p.new);
+                        true
                     }
-                    let logits = logits.unwrap();
-                    timings.end();
-                    let p = target_model.p_from_logits(&logits);
-                    *ps[j].write().unwrap() = p;
-                });
-            }
-        });
-        let rps = Arc::into_inner(ps).unwrap();
-        let mut ps = Vec::<Vec<f32>>::new();
-        for r in rps {
-            ps.push(r.into_inner().unwrap()?);
+                }
+            } {}
         }
-        let timings = Arc::into_inner(timings).unwrap();
-        for t in timings {
-            for item in t.into_inner().unwrap().timings_report {
-                result.timings_report.push(item);
-            }
-        }
-        output_tokens.truncate(output_tokens.len() - cur_gamma);
-        let target_mut = Arc::get_mut(&mut target_model).unwrap();
         let mut accept_cnt = 0;
         for j in 0..cur_gamma {
+            while {
+                let params_shared = wcbs[j].params.load(Ordering::Acquire, guard);
+                let params = unsafe { params_shared.deref() };
+                params.0.is_some() || params.1
+            } {}
+            let logits_shared = wcbs[j].logits.load(Ordering::Acquire, guard);
+            let logits = unsafe { logits_shared.deref() };
+            let p = target_model.p_from_logits(logits)?;
             let accept_prob = f32::min(
                 1_f32,
-                ps[j][new_tokens[j] as usize] / qs[j][new_tokens[j] as usize],
+                p[new_tokens[j] as usize] / qs[j][new_tokens[j] as usize],
             );
-            if target_mut.prob_test(accept_prob) {
-                output_tokens.push(new_tokens[j]);
+            if target_model.prob_test(accept_prob) {
                 accept_cnt += 1;
             } else {
+                for wcb in wcbs.iter().take(cur_gamma).skip(j + 1) {
+                    wcb.reset.store(true, Ordering::Release);
+                }
                 break;
             }
         }
-        if let Some(token) = output_tokens.last() {
-            if *token as usize == target_mut.config.eos_token_id {
-                break;
-            }
+        if output_tokens.read().unwrap()[i + accept_cnt - 1] == eos_token_id {
+            break;
         }
-        if accept_cnt == cur_gamma {
+        let new_token = if accept_cnt == cur_gamma {
+            while {
+                let params_shared =
+                    wcbs[cur_gamma].params.load(Ordering::Acquire, guard);
+                let params = unsafe { params_shared.deref() };
+                params.0.is_some() || params.1
+            } {}
+            let logits_shared = wcbs[cur_gamma].logits.load(Ordering::Acquire, guard);
+            let logits = unsafe { logits_shared.deref() };
+            // Upsample
             result.begin(
                 RunnerType::Target,
                 ActionType::Sampling,
-                output_tokens.len(),
+                i + accept_cnt,
             );
-            let new_token = target_mut.sample_from_p(&ps[cur_gamma])?;
+            let p = target_model.p_from_logits(logits)?;
+            let new_token = target_model.sample_from_p(&p)?;
             result.end();
-            output_tokens.push(new_token);
+            new_token
         } else {
+            let logits_shared =
+                wcbs[accept_cnt].logits.load(Ordering::Acquire, guard);
+            let logits = unsafe { logits_shared.deref() };
+            // Resample
             result.begin(
                 RunnerType::Target,
                 ActionType::Sampling,
-                output_tokens.len(),
+                i + accept_cnt,
             );
-            let p: Vec<f32> = ps[accept_cnt]
+            let p = target_model.p_from_logits(logits)?;
+            let p: Vec<f32> = p
                 .iter()
                 .zip(&qs[accept_cnt])
                 .map(|(p, q)| f32::max(0 as f32, *p - *q))
                 .collect();
-            let new_token = target_mut.sample_from_p(&p)?;
+            let new_token = target_model.sample_from_p(&p)?;
             result.end();
-            output_tokens.push(new_token);
+            new_token
+        };
+        if new_token == eos_token_id {
+            break;
         }
-        if let Some(token) = output_tokens.last() {
-            if *token as usize == target_mut.config.eos_token_id {
-                break;
+        for wcb in &wcbs {
+            let params_shared = wcb.params.load(Ordering::Acquire, guard);
+            let params = unsafe { params_shared.deref() };
+            if params.0.is_some() || params.1 {
+                wcb.reset.store(true, Ordering::Release);
             }
         }
-        target_mut.pass_kv_cache(accept_cnt, 0)?;
+        for wcb in &wcbs {
+            while {
+                let params_shared = wcb.params.load(Ordering::Acquire, guard);
+                let params = unsafe { params_shared.deref() };
+                params.0.is_some() || params.1
+            } {
+                if !wcb.reset.load(Ordering::Acquire) {
+                    wcb.params.store(Owned::new((None, false)), Ordering::Release);
+                }
+                std::hint::spin_loop();
+            }
+        }
+        log::info!("accept_cnt : {:?}", accept_cnt);
+        target_model.pass_kv_cache(accept_cnt, 0)?;
+        let mut output_tokens_write = output_tokens.write().unwrap();
+        output_tokens_write.truncate(i + accept_cnt);
+        output_tokens_write.push(new_token);
+        drop(output_tokens_write);
         if draft_model.config.use_cache {
+            // ForwardKV
             if accept_cnt == cur_gamma {
+                result.begin(
+                    RunnerType::Draft,
+                    ActionType::ForwardKV,
+                    output_tokens.read().unwrap().len() - 2,
+                );
                 draft_model.runners[0].write().unwrap().forward_kv_cache(
-                    output_tokens.len() - 2..output_tokens.len() - 1,
+                    output_tokens.read().unwrap().len() - 2,
                     &draft_encoder_output,
                     &output_tokens,
-                    draft_model.config.use_cache,
                 )?;
+                result.end();
             } else {
-                draft_model.runners[0].write().unwrap().forward_kv_cache(
-                    i - 1..output_tokens.len() - 1,
-                    &draft_encoder_output,
-                    &output_tokens,
-                    draft_model.config.use_cache,
-                )?;
+                for j in i - 1..output_tokens.read().unwrap().len() - 1 {
+                    result.begin(RunnerType::Draft, ActionType::ForwardKV, j);
+                    draft_model.runners[0].write().unwrap().forward_kv_cache(
+                        j,
+                        &draft_encoder_output,
+                        &output_tokens,
+                    )?;
+                    result.end();
+                }
             };
         }
     }
-    result.output_tokens = output_tokens;
+    for wcb in &wcbs {
+        wcb.kill.store(true, Ordering::Release);
+    }
+    while let Some(w) = workers.pop() {
+        let _ = w.join();
+    }
+    result.output_tokens.clone_from(&output_tokens.read().unwrap());
+    for wcb in &wcbs {
+        for item in &wcb.result.read().unwrap().timings_report {
+            result.timings_report.push(item.clone());
+        }
+    }
+    result.timings_report.sort_by(|a, b| a.time_range.0.cmp(&b.time_range.0));
     Ok(result)
 }
