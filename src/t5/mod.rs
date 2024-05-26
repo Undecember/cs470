@@ -105,7 +105,7 @@ impl T5Model {
         Ok(())
     }
 
-    pub fn pass_kv_cache(&mut self, from: usize, to: usize) -> Result<()> {
+    pub fn pass_kv_cache(&self, from: usize, to: usize) -> Result<()> {
         let kv_cache = self.runners[from].read().unwrap().export_kv_cache()?;
         self.runners[to].write().unwrap().import_kv_cache(&kv_cache)
     }

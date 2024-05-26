@@ -319,7 +319,7 @@ impl T5Attention {
     fn export_kv_cache(&self) -> AResult<T5AttentionCache> {
         let kv_cache = match &self.kv_cache {
             None => None,
-            Some((k, v)) => Some((k.copy()?, v.copy()?)),
+            Some((k, v)) => Some((k.clone(), v.clone())),
         };
         Ok(T5AttentionCache { kv_cache })
     }

@@ -148,18 +148,6 @@ pub fn speculative_sampling(
             }
         }
         let cur_gamma = new_tokens.len();
-        for j in 0..cur_gamma + 1 {
-            let target_mut = Arc::get_mut(&mut target_model).unwrap();
-            target_mut.runners[j].write().unwrap().forward_kv_cache(
-                i + j - 1..i + j,
-                &target_encoder_output,
-                &output_tokens,
-                target_mut.config.use_cache,
-            )?;
-            if j < cur_gamma {
-                target_mut.pass_kv_cache(j, j + 1)?;
-            }
-        }
         let mut ps = Vec::<RwLock<Result<Vec<f32>>>>::new();
         for _ in 0..cur_gamma + 1 {
             ps.push(RwLock::new(Ok(Vec::<f32>::new())));
@@ -167,6 +155,19 @@ pub fn speculative_sampling(
         let ps = Arc::new(ps);
         scope(|s| {
             for j in 0..cur_gamma + 1 {
+                let mut timings_report_write = result.timings_report.write().unwrap();
+                timings_report_write
+                    .push((Instant::now(), TimingsReportItem::TargetBegin(0)));
+                let _ = target_model.runners[j].write().unwrap().forward_kv_cache(
+                    i + j - 1..i + j,
+                    &target_encoder_output,
+                    &output_tokens,
+                    target_model.config.use_cache,
+                );
+                if j < cur_gamma {
+                    let _ = target_model.pass_kv_cache(j, j + 1);
+                }
+
                 let ps = ps.clone();
                 let target_model = target_model.clone();
                 let timings_report = result.timings_report.clone();
