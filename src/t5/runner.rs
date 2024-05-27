@@ -22,11 +22,11 @@ fn default_tie_word_embeddings() -> bool {
     true
 }
 
-fn get_mask(size: usize, device: &Device) -> Result<Tensor> {
-    let mask: Vec<_> = (0..size)
-        .flat_map(|i| (0..size).map(move |j| u8::from(j > i)))
+fn get_mask(size: usize, pad: usize, device: &Device) -> Result<Tensor> {
+    let mask: Vec<_> = (pad..size + pad)
+        .flat_map(|i| (0..size + pad).map(move |j| u8::from(j > i)))
         .collect();
-    Tensor::from_slice(&mask, (size, size), device)
+    Tensor::from_slice(&mask, (size, size + pad), device)
 }
 
 fn masked_fill(on_false: &Tensor, mask: &Tensor, on_true: f32) -> Result<Tensor> {
@@ -633,34 +633,29 @@ impl T5Block {
 
     fn forward(
         &mut self,
+        pad: usize,
         xs: &Tensor,
         position_bias: Option<&Tensor>,
         encoder_hidden_states: Option<&Tensor>,
     ) -> Result<(Tensor, Option<Tensor>)> {
-        // TODO: Cache masks
         let mask = match self.cross_attn.is_some() {
             true => {
                 let mask_len = xs.dim(1)?;
-                // If the input seq length is 1, no need for a mask, this is also helpful to avoid shape
-                // issues when using the KV cache in the decoder.
                 if mask_len <= 1 {
                     None
                 } else {
-                    Some(get_mask(mask_len, xs.device())?)
+                    Some(get_mask(mask_len, pad, xs.device())?)
                 }
             }
             false => None,
         };
         let (mut xs, position_bias) =
             self.self_attn.forward(xs, position_bias, mask.as_ref())?;
-        // TODO: clamp for f16?
         if let Some(cross_attn) = &mut self.cross_attn {
             (xs, _) =
                 cross_attn.forward(&xs, None, encoder_hidden_states.unwrap())?;
-            // TODO: clamp for f16?
         }
         let xs = self.ff.forward(&xs)?;
-        // TODO: clamp for f16?
         Ok((xs, position_bias))
     }
 
@@ -712,6 +707,7 @@ impl T5Stack {
 
     fn forward(
         &mut self,
+        pad: usize,
         input_ids: &Tensor,
         encoder_hidden_states: Option<&Tensor>,
     ) -> Result<Tensor> {
@@ -720,6 +716,7 @@ impl T5Stack {
         let mut position_bias = None;
         for block in self.block.iter_mut() {
             (hidden_states, position_bias) = block.forward(
+                pad,
                 &hidden_states,
                 position_bias.as_ref(),
                 encoder_hidden_states,
@@ -808,45 +805,7 @@ impl T5Runner {
     }
 
     pub fn encode(&mut self, input_ids: &Tensor) -> Result<Tensor> {
-        self.encoder.forward(input_ids, None)
-    }
-
-    pub fn decode(
-        &mut self,
-        decoder_input_ids: &Tensor,
-        encoder_output: &Tensor,
-    ) -> Result<Tensor> {
-        let decoder_output = self
-            .decoder
-            .forward(decoder_input_ids, Some(encoder_output))?;
-
-        let scaling_factor = if self.tie_word_embeddings {
-            // Rescale output before projecting on vocab
-            // See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/transformer/transformer.py#L586
-            (self.d_model as f64).sqrt()
-        } else {
-            1.0
-        };
-        let sequence_output = ((decoder_output
-            .narrow(1, decoder_output.dim(1)? - 1, 1)?
-            .squeeze(1)?)
-            * scaling_factor)?;
-        let output = {
-            match self.lm_head {
-                None => sequence_output.matmul(&self.shared.embeddings().t()?)?,
-                Some(ref lm_head) => lm_head.forward(&sequence_output)?,
-            }
-        };
-        Ok(output)
-    }
-
-    pub fn forward(
-        &mut self,
-        input_ids: &Tensor,
-        decoder_input_ids: &Tensor,
-    ) -> Result<Tensor> {
-        let encoder_output = self.encode(input_ids)?;
-        self.decode(decoder_input_ids, &encoder_output)
+        self.encoder.forward(0, input_ids, None)
     }
 
     pub fn device(&self) -> &Device {
@@ -860,17 +819,18 @@ impl T5Runner {
 
     pub fn forward_kv_cache(
         &mut self,
-        index: usize,
+        range: std::ops::Range<usize>,
         encoder_output: &Tensor,
         output_tokens: &RwLock<Vec<u32>>,
     ) -> Result<Tensor> {
+        let pad = range.start;
         let output_tokens = output_tokens.read().unwrap();
         let decoder_tokens = if self.use_cache {
-            Tensor::new(&[output_tokens[index]], &self.device)?.unsqueeze(0)?
+            Tensor::new(&output_tokens[range], &self.device)?.unsqueeze(0)?
         } else {
-            Tensor::new(&output_tokens[..index + 1], &self.device)?.unsqueeze(0)?
+            Tensor::new(&output_tokens[..range.end], &self.device)?.unsqueeze(0)?
         };
-        self.decoder.forward(&decoder_tokens, Some(encoder_output))
+        self.decoder.forward(pad, &decoder_tokens, Some(encoder_output))
     }
 
     pub fn get_logits(

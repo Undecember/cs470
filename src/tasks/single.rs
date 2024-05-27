@@ -111,7 +111,7 @@ pub fn sampling(
     for i in 0..max_tokens {
         result.begin(ActionType::ForwardKV, i);
         let decoder_output = model.runner.write().unwrap().forward_kv_cache(
-            i,
+            i..i + 1,
             &encoder_output,
             &output_tokens,
         )?;

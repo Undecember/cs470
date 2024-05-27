@@ -152,11 +152,12 @@ pub fn sampling(
         for j in 0..gamma {
             // ForwardKV
             result_write.begin(RunnerType::Draft, ActionType::ForwardKV, i + j);
-            let draft_decoder_output = draft_model
-                .runner
-                .write()
-                .unwrap()
-                .forward_kv_cache(i + j - 1, &draft_encoder_output, &output_tokens)?;
+            let draft_decoder_output =
+                draft_model.runner.write().unwrap().forward_kv_cache(
+                    i + j - 1..i + j,
+                    &draft_encoder_output,
+                    &output_tokens,
+                )?;
             result_write.end();
             // LogitsCalc
             result_write.begin(RunnerType::Draft, ActionType::LogitsCalc, i + j);
@@ -179,18 +180,25 @@ pub fn sampling(
         }
         let cur_gamma = new_tokens.len();
         // Target (KV)
-        let mut target_decoder_outputs = Vec::new();
         let mut target_runner_write = target_model.runner.write().unwrap();
-        for j in 0..cur_gamma + 1 {
-            // ForwardKV
-            result_write.begin(RunnerType::Target, ActionType::ForwardKV, i + j);
-            target_decoder_outputs.push(target_runner_write.forward_kv_cache(
-                i + j - 1,
-                &target_encoder_output,
-                &output_tokens,
-            )?);
-            result_write.end();
-        }
+        result_write.begin(RunnerType::Target, ActionType::ForwardKV, i + cur_gamma);
+        let target_decoder_outputs = target_runner_write.forward_kv_cache(
+            i - 1..i + cur_gamma,
+            &target_encoder_output,
+            &output_tokens,
+        )?;
+        let mut target_decoder_outputs = {
+            let mut res = Vec::<Tensor>::with_capacity(cur_gamma + 1);
+            for j in 0..cur_gamma + 1 {
+                res.push(
+                    target_decoder_outputs
+                        .get_on_dim(1, j)?
+                        .unsqueeze(0)?,
+                );
+            }
+            res
+        };
+        result_write.end();
         drop(target_runner_write);
         drop(result_write);
         // Target (parallel)
@@ -231,7 +239,10 @@ pub fn sampling(
         });
         let target_logits = {
             let mut res = Vec::new();
-            target_logitss.write().unwrap().sort_by(|a, b| (&a.0).cmp(&b.0));
+            target_logitss
+                .write()
+                .unwrap()
+                .sort_by(|a, b| a.0.cmp(&b.0));
             while let Some((_, logits)) = target_logitss.write().unwrap().pop() {
                 res.push(logits);
             }
@@ -251,6 +262,7 @@ pub fn sampling(
                 break;
             }
         }
+        log::info!("{:?}", accept_cnt);
         if output_tokens.read().unwrap()[i + accept_cnt - 1] == eos_token_id {
             break;
         }
@@ -305,7 +317,7 @@ pub fn sampling(
                 i + accept_cnt,
             );
             draft_model.runner.write().unwrap().forward_kv_cache(
-                i + accept_cnt - 1,
+                i + accept_cnt - 1..i + accept_cnt,
                 &draft_encoder_output,
                 &output_tokens,
             )?;
