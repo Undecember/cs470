@@ -26,7 +26,7 @@ pub struct T5Model {
     pub top_p: Option<f64>,
     pub seed: u64,
     pub repeat_penalty: f32,
-    pub runners: Vec<Arc<RwLock<T5Runner>>>,
+    pub runner: Arc<RwLock<T5Runner>>,
 }
 
 impl T5Model {
@@ -54,12 +54,12 @@ impl T5Model {
             )?
         };
         let rng = rand::rngs::StdRng::seed_from_u64(args.seed);
-        let runners = vec![Arc::new(RwLock::new(T5Runner::load(
+        let runner = Arc::new(RwLock::new(T5Runner::load(
             vb,
             &config,
             device.clone(),
             args.repeat_penalty,
-        )?))];
+        )?));
 
         Ok((
             Self {
@@ -70,43 +70,9 @@ impl T5Model {
                 top_p: args.top_p,
                 seed: args.seed,
                 repeat_penalty: args.repeat_penalty,
-                runners,
+                runner,
             },
             tokenizer,
         ))
-    }
-
-    pub fn init_runners(&mut self, cnt: usize) -> Result<()> {
-        self.runners.truncate(1);
-        self.runners[0].write().unwrap().clear_kv_cache();
-        let kv_cache = self.runners[0].read().unwrap().export_kv_cache();
-        for i in 1..cnt {
-            let runner = T5Runner::clone(&*self.runners[0].read().unwrap());
-            self.runners.push(Arc::new(RwLock::new(runner)));
-            self.runners[i]
-                .write()
-                .unwrap()
-                .import_kv_cache(&kv_cache)?;
-        }
-        Ok(())
-    }
-
-    pub fn propagate_kv_cache(&mut self, index: usize) -> Result<()> {
-        let kv_cache = self.runners[index].read().unwrap().export_kv_cache();
-        for i in 0..self.runners.len() {
-            if i == index {
-                continue;
-            }
-            self.runners[i]
-                .write()
-                .unwrap()
-                .import_kv_cache(&kv_cache)?;
-        }
-        Ok(())
-    }
-
-    pub fn pass_kv_cache(&self, from: usize, to: usize) -> Result<()> {
-        let kv_cache = self.runners[from].read().unwrap().export_kv_cache();
-        self.runners[to].write().unwrap().import_kv_cache(&kv_cache)
     }
 }

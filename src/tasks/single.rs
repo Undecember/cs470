@@ -1,8 +1,8 @@
 use crate::t5::T5Model;
 use anyhow::Result;
 use candle_core::Tensor;
-use std::time::{Duration, Instant};
 use std::sync::RwLock;
+use std::time::{Duration, Instant};
 
 pub enum ActionType {
     ForwardKV,
@@ -106,22 +106,22 @@ pub fn sampling(
     .to_vec();
 
     let input_tokens = Tensor::new(tokens, &model.device)?.unsqueeze(0)?;
-    model.init_runners(1)?;
-    let encoder_output = model.runners[0].write().unwrap().encode(&input_tokens)?;
+    let encoder_output = model.runner.write().unwrap().encode(&input_tokens)?;
     let output_tokens = RwLock::new(output_tokens);
     for i in 0..max_tokens {
         result.begin(ActionType::ForwardKV, i);
-        model.runners[0].write().unwrap().forward_kv_cache(
-            i,
+        let decoder_output = model.runner.write().unwrap().forward_kv_cache(
+            i..i + 1,
             &encoder_output,
             &output_tokens,
         )?;
         result.end();
         result.begin(ActionType::LogitsCalc, i);
-        let logits = model.runners[0]
-            .write()
+        let logits = model
+            .runner
+            .read()
             .unwrap()
-            .get_logits(&output_tokens)?;
+            .get_logits(decoder_output, &output_tokens)?;
         result.end();
         result.begin(ActionType::Sampling, i);
         let p = model.p_from_logits(&logits)?;
@@ -132,6 +132,8 @@ pub fn sampling(
         }
         output_tokens.write().unwrap().push(next_token);
     }
-    result.output_tokens.clone_from(&output_tokens.read().unwrap());
+    result
+        .output_tokens
+        .clone_from(&output_tokens.read().unwrap());
     Ok(result)
 }
