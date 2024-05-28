@@ -17,6 +17,18 @@ pub enum WhichModel {
     T5_11B,
 }
 
+#[derive(Clone, Debug, Copy, ValueEnum)]
+pub enum WhichPrefix {
+    #[value(name = "summarize")]
+    Summarize,
+    #[value(name = "translate-german")]
+    TranslateGerman,
+    #[value(name = "translate-french")]
+    TranslateFrench,
+    #[value(name = "translate-romanian")]
+    TranslateRomanian,
+}
+
 #[derive(Parser, Debug)]
 #[group(required = true, multiple = false)]
 pub struct PromptArgs {
@@ -36,11 +48,15 @@ pub struct Args {
     #[clap(flatten)]
     pub prompt_group: PromptArgs,
 
-    /// Target model's repository path.
+    /// Prompt prefix type
+    #[arg(long, default_value = "summarize")]
+    pub prefix: WhichPrefix,
+
+    /// Target model's repository path
     #[arg(short = 't', long, default_value = "3b")]
     pub target_model_repo: WhichModel,
 
-    /// Draft model's repository path.
+    /// Draft model's repository path
     #[arg(short = 'd', long, default_value = "small")]
     pub draft_model_repo: WhichModel,
 
@@ -82,6 +98,7 @@ impl Args {
         if let Some(file) = &self.prompt_group.prompt_file {
             info!("Prompt from file : {}", file.bold());
         }
+        info!("Prefix : {}", self.get_prefix().bold());
         info!(
             "Target model : {}",
             Self::whichmodel_to_repo(self.target_model_repo).0.bold()
@@ -90,7 +107,7 @@ impl Args {
             "Draft model : {}",
             Self::whichmodel_to_repo(self.draft_model_repo).0.bold()
         );
-        info!("Gamma : {}", self.max_tokens.to_string().bold());
+        info!("Gamma : {}", self.gamma.to_string().bold());
         info!("Max tokens : {}", self.max_tokens.to_string().bold());
         info!("Temperature : {:.2}", self.temperature.to_string().bold());
         info!("Random seed : {}", self.seed.to_string().bold());
@@ -107,6 +124,15 @@ impl Args {
             if self.no_kv_cache { "No" } else { "Using" }.bold()
         );
         info!("Repeat_penalty : {:.2}\n", self.repeat_penalty.to_string().bold());
+    }
+
+    pub fn get_prefix(&self) -> String {
+        match self.prefix {
+            WhichPrefix::Summarize => "summarize: ",
+            WhichPrefix::TranslateGerman => "translate English to German: ",
+            WhichPrefix::TranslateFrench => "translate English to French: ",
+            WhichPrefix::TranslateRomanian => "translate English to Romanian: ",
+        }.to_string()
     }
 
     pub fn get_draft_repo(&self) -> (String, String) {

@@ -31,7 +31,8 @@ fn main() -> Result<()> {
         args.get_model_args(),
     )?;
 
-    let prompt = format!("summarize: {}", 
+    let prompt = format!("{}{}", 
+        args.get_prefix(),
         if let Some(file) = args.prompt_group.prompt_file {
             std::fs::read_to_string(file)?
         } else {
