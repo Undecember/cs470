@@ -31,7 +31,12 @@ fn main() -> Result<()> {
         args.get_model_args(),
     )?;
 
-    let prompt = format!("summarize: {}", args.prompt);
+    let prompt = format!("summarize: {}", 
+        if let Some(file) = args.prompt_group.prompt_file {
+            std::fs::read_to_string(file)?
+        } else {
+            args.prompt_group.prompt.unwrap()
+        });
     let tokenizer = tokenizer
         .with_padding(None)
         .with_truncation(None)
@@ -42,16 +47,16 @@ fn main() -> Result<()> {
         .get_ids()
         .to_vec();
 
-    info!("Start generating.");
-    info!("[ {} ]\n", "Draft only".bold());
+    info!("Start generating.\n");
+    info!("[ {} ]", "Draft only".bold());
     let result = single_sampling(&mut draft_model, &tokens, args.max_tokens)?;
     let dur = result.total_dur();
     info!(
-        "Generation speed : {:.3} ms/tokens",
+        "Generation speed : {:.3} ms/token",
         dur.as_millis() as f64 / result.output_tokens.len() as f64
     );
     info!(
-        "Generated text :\n{}",
+        "Generated text : {}\n",
         tokenizer
             .decode(&result.output_tokens, true)
             .map_err(E::msg)?
@@ -59,15 +64,15 @@ fn main() -> Result<()> {
     );
     result.export_timings("draft.timings", "draft")?;
 
-    info!("[ {} ]\n", "Target only".bold());
+    info!("[ {} ]", "Target only".bold());
     let result = single_sampling(&mut target_model, &tokens, args.max_tokens)?;
     let dur = result.total_dur();
     info!(
-        "Generation speed : {:.3} ms/tokens",
+        "Generation speed : {:.3} ms/token",
         dur.as_millis() as f64 / result.output_tokens.len() as f64
     );
     info!(
-        "Generated text :\n{}",
+        "Generated text : {}\n",
         tokenizer
             .decode(&result.output_tokens, true)
             .map_err(E::msg)?
@@ -75,7 +80,7 @@ fn main() -> Result<()> {
     );
     result.export_timings("target.timings", "target")?;
 
-    info!("[ {} ]\n", "Speculative sampling".bold());
+    info!("[ {} ]", "Speculative sampling".bold());
     let result = speculative_sampling(
         draft_model,
         target_model,
@@ -85,11 +90,11 @@ fn main() -> Result<()> {
     )?;
     let dur = result.total_dur();
     info!(
-        "Generation speed : {:.3} ms/tokens",
+        "Generation speed : {:.3} ms/token",
         dur.as_millis() as f64 / result.output_tokens.len() as f64
     );
     info!(
-        "Generated text :\n{}",
+        "Generated text : {}\n",
         tokenizer
             .decode(&result.output_tokens, true)
             .map_err(E::msg)?

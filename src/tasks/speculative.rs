@@ -262,7 +262,6 @@ pub fn sampling(
                 break;
             }
         }
-        log::info!("{:?}", accept_cnt);
         if output_tokens.read().unwrap()[i + accept_cnt - 1] == eos_token_id {
             break;
         }
