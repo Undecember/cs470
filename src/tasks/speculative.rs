@@ -190,11 +190,7 @@ pub fn sampling(
         let mut target_decoder_outputs = {
             let mut res = Vec::<Tensor>::with_capacity(cur_gamma + 1);
             for j in 0..cur_gamma + 1 {
-                res.push(
-                    target_decoder_outputs
-                        .get_on_dim(1, j)?
-                        .unsqueeze(0)?,
-                );
+                res.push(target_decoder_outputs.get_on_dim(1, j)?.unsqueeze(0)?);
             }
             res
         };

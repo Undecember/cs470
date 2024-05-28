@@ -39,7 +39,6 @@ pub struct PromptArgs {
     /// Prompt from file
     #[arg(long)]
     pub prompt_file: Option<String>,
-
 }
 
 #[derive(Parser, Debug)]
@@ -109,11 +108,16 @@ impl Args {
         );
         info!("Gamma : {}", self.gamma.to_string().bold());
         info!("Max tokens : {}", self.max_tokens.to_string().bold());
-        info!("Temperature : {:.2}", self.temperature.to_string().bold());
+        info!(
+            "Temperature : {}",
+            format!("{:.3}", self.temperature).bold()
+        );
         info!("Random seed : {}", self.seed.to_string().bold());
         info!(
             "Top p : {}",
-            self.top_p.map_or("None".to_string(), |p| format!("{:.2}", p)).bold()
+            self.top_p
+                .map_or("None".to_string(), |p| format!("{:.2}", p))
+                .bold()
         );
         info!(
             "Running on device {}",
@@ -123,7 +127,10 @@ impl Args {
             "{} KV cache",
             if self.no_kv_cache { "No" } else { "Using" }.bold()
         );
-        info!("Repeat_penalty : {}\n", format!("{:.2}", self.repeat_penalty).bold());
+        info!(
+            "Repeat_penalty : {}\n",
+            format!("{:.2}", self.repeat_penalty).bold()
+        );
     }
 
     pub fn get_prefix(&self) -> String {
@@ -132,7 +139,8 @@ impl Args {
             WhichPrefix::TranslateGerman => "translate English to German: ",
             WhichPrefix::TranslateFrench => "translate English to French: ",
             WhichPrefix::TranslateRomanian => "translate English to Romanian: ",
-        }.to_string()
+        }
+        .to_string()
     }
 
     pub fn get_draft_repo(&self) -> (String, String) {

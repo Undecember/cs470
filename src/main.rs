@@ -31,13 +31,15 @@ fn main() -> Result<()> {
         args.get_model_args(),
     )?;
 
-    let prompt = format!("{}{}", 
+    let prompt = format!(
+        "{}{}",
         args.get_prefix(),
         if let Some(file) = args.prompt_group.prompt_file {
             std::fs::read_to_string(file)?
         } else {
             args.prompt_group.prompt.unwrap()
-        });
+        }
+    );
     let tokenizer = tokenizer
         .with_padding(None)
         .with_truncation(None)

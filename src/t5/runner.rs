@@ -830,7 +830,8 @@ impl T5Runner {
         } else {
             Tensor::new(&output_tokens[..range.end], &self.device)?.unsqueeze(0)?
         };
-        self.decoder.forward(pad, &decoder_tokens, Some(encoder_output))
+        self.decoder
+            .forward(pad, &decoder_tokens, Some(encoder_output))
     }
 
     pub fn get_logits(
