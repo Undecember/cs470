@@ -113,7 +113,7 @@ impl Args {
         info!("Random seed : {}", self.seed.to_string().bold());
         info!(
             "Top p : {}",
-            self.top_p.map_or("None".to_string(), |p| p.to_string()).bold()
+            self.top_p.map_or("None".to_string(), |p| format!("{:.2}", p)).bold()
         );
         info!(
             "Running on device {}",
@@ -123,7 +123,7 @@ impl Args {
             "{} KV cache",
             if self.no_kv_cache { "No" } else { "Using" }.bold()
         );
-        info!("Repeat_penalty : {:.2}\n", self.repeat_penalty.to_string().bold());
+        info!("Repeat_penalty : {}\n", format!("{:.2}", self.repeat_penalty).bold());
     }
 
     pub fn get_prefix(&self) -> String {
