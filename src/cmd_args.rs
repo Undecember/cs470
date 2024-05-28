@@ -18,11 +18,23 @@ pub enum WhichModel {
 }
 
 #[derive(Parser, Debug)]
+#[group(required = true, multiple = false)]
+pub struct PromptArgs {
+    /// Prompt
+    #[arg(short = 'p', long)]
+    pub prompt: Option<String>,
+
+    /// Prompt from file
+    #[arg(long)]
+    pub prompt_file: Option<String>,
+
+}
+
+#[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
-    /// Prompt to translate
-    #[arg(short = 'p', long, required = true)]
-    pub prompt: String,
+    #[clap(flatten)]
+    pub prompt_group: PromptArgs,
 
     /// Target model's repository path.
     #[arg(short = 't', long, default_value = "3b")]
@@ -67,6 +79,9 @@ pub struct Args {
 
 impl Args {
     pub fn review(&self) {
+        if let Some(file) = &self.prompt_group.prompt_file {
+            info!("Prompt from file : {}", file.bold());
+        }
         info!(
             "Target model : {}",
             Self::whichmodel_to_repo(self.target_model_repo).0.bold()
@@ -75,22 +90,23 @@ impl Args {
             "Draft model : {}",
             Self::whichmodel_to_repo(self.draft_model_repo).0.bold()
         );
-        info!("Max tokens : {}", self.max_tokens);
-        info!("Temperature : {:.2}", self.temperature);
-        info!("Random seed : {}", self.seed);
+        info!("Gamma : {}", self.max_tokens.to_string().bold());
+        info!("Max tokens : {}", self.max_tokens.to_string().bold());
+        info!("Temperature : {:.2}", self.temperature.to_string().bold());
+        info!("Random seed : {}", self.seed.to_string().bold());
         info!(
             "Top p : {}",
-            self.top_p.map_or("None".to_string(), |p| p.to_string())
+            self.top_p.map_or("None".to_string(), |p| p.to_string()).bold()
         );
         info!(
             "Running on device {}",
             if self.cpu { "CPU" } else { "CUDA" }.bold()
         );
         info!(
-            "{}sing KV cache",
-            if self.no_kv_cache { "Not u" } else { "U" }
+            "{} KV cache",
+            if self.no_kv_cache { "No" } else { "Using" }.bold()
         );
-        info!("Repeat_penalty : {:.2}", self.repeat_penalty);
+        info!("Repeat_penalty : {:.2}\n", self.repeat_penalty.to_string().bold());
     }
 
     pub fn get_draft_repo(&self) -> (String, String) {
