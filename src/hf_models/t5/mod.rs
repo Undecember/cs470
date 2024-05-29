@@ -6,7 +6,7 @@ pub mod runner;
 
 pub use config::T5Config;
 
-use anyhow::{Error as E, Result, bail};
+use anyhow::{bail, Error as E, Result};
 use candle_core::{DType, Device, Result as CResult};
 use candle_nn::VarBuilder;
 use hf_hub::{api::sync::Api, Repo, RepoType};

@@ -3,6 +3,7 @@ use candle_core::Device;
 use colored::Colorize;
 use cs470::cmd_args::parse_args;
 use cs470::hf_models::t5::T5Model;
+use cs470::tasks::report::RunnerType::{Draft, Target};
 use cs470::tasks::single::sampling as single_sampling;
 use cs470::tasks::speculative::sampling as speculative_sampling;
 use log::info;
@@ -52,58 +53,58 @@ fn main() -> Result<()> {
 
     info!("Start generating.\n");
     info!("[ {} ]", "Draft only".bold());
-    let result = single_sampling(&mut draft_model, &tokens, args.max_tokens)?;
-    let dur = result.total_dur();
+    let report = single_sampling(Draft, &mut draft_model, &tokens, args.max_tokens)?;
+    let dur = report.total_millis();
     info!(
         "Generation speed : {:.3} ms/token",
-        dur.as_millis() as f64 / result.output_tokens.len() as f64
+        dur / report.output_tokens.len() as f64
     );
     info!(
         "Generated text : {}\n",
         tokenizer
-            .decode(&result.output_tokens, true)
+            .decode(&report.output_tokens, true)
             .map_err(E::msg)?
             .cyan()
     );
-    result.export_timings("draft.timings", "draft")?;
+    report.export_timings("draft.timings")?;
 
     info!("[ {} ]", "Target only".bold());
-    let result = single_sampling(&mut target_model, &tokens, args.max_tokens)?;
-    let dur = result.total_dur();
+    let report = single_sampling(Target, &mut target_model, &tokens, args.max_tokens)?;
+    let dur = report.total_millis();
     info!(
         "Generation speed : {:.3} ms/token",
-        dur.as_millis() as f64 / result.output_tokens.len() as f64
+        dur / report.output_tokens.len() as f64
     );
     info!(
         "Generated text : {}\n",
         tokenizer
-            .decode(&result.output_tokens, true)
+            .decode(&report.output_tokens, true)
             .map_err(E::msg)?
             .cyan()
     );
-    result.export_timings("target.timings", "target")?;
+    report.export_timings("target.timings")?;
 
     info!("[ {} ]", "Speculative sampling".bold());
-    let result = speculative_sampling(
+    let report = speculative_sampling(
         draft_model,
         target_model,
         args.gamma,
         &tokens,
         args.max_tokens,
     )?;
-    let dur = result.total_dur();
+    let dur = report.total_millis();
     info!(
         "Generation speed : {:.3} ms/token",
-        dur.as_millis() as f64 / result.output_tokens.len() as f64
+        dur / report.output_tokens.len() as f64
     );
     info!(
         "Generated text : {}\n",
         tokenizer
-            .decode(&result.output_tokens, true)
+            .decode(&report.output_tokens, true)
             .map_err(E::msg)?
             .cyan()
     );
-    result.export_timings("speculative.timings")?;
+    report.export_timings("speculative.timings")?;
 
     Ok(())
 }

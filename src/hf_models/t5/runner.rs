@@ -5,7 +5,7 @@ use super::T5Config;
 use anyhow::{Error as E, Result as AResult};
 use candle_core::{Device, Module, Result, Tensor};
 use candle_nn::{embedding, linear_no_bias, Embedding, Linear, VarBuilder};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 fn get_mask(size: usize, pad: usize, device: &Device) -> Result<Tensor> {
     let mask: Vec<_> = (pad..size + pad)
@@ -249,10 +249,9 @@ impl T5Runner {
         &mut self,
         range: std::ops::Range<usize>,
         encoder_output: &Tensor,
-        output_tokens: &RwLock<Vec<u32>>,
+        output_tokens: &[u32],
     ) -> Result<Tensor> {
         let pad = range.start;
-        let output_tokens = output_tokens.read().unwrap();
         let decoder_tokens = if self.use_cache {
             Tensor::new(&output_tokens[range], &self.device)?.unsqueeze(0)?
         } else {
@@ -265,7 +264,7 @@ impl T5Runner {
     pub fn get_logits(
         &self,
         decoder_output: Tensor,
-        output_tokens: &RwLock<Vec<u32>>,
+        output_tokens: &[u32],
     ) -> AResult<Tensor> {
         let scaling_factor = if self.tie_word_embeddings {
             (self.d_model as f64).sqrt()
@@ -286,7 +285,6 @@ impl T5Runner {
         if self.repeat_penalty == 1. {
             Ok(logits)
         } else {
-            let output_tokens = output_tokens.read().unwrap();
             let start_at = output_tokens.len().saturating_sub(64);
             candle_transformers::utils::apply_repeat_penalty(
                 &logits,
