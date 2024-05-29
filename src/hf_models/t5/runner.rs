@@ -179,11 +179,7 @@ impl T5Runner {
 }
 
 impl T5Runner {
-    pub fn load(
-        vb: VarBuilder,
-        cfg: &T5Config,
-        device: Arc<Device>,
-    ) -> Result<Self> {
+    pub fn load(vb: VarBuilder, cfg: &T5Config, device: Arc<Device>) -> Result<Self> {
         assert!(cfg.is_encoder_decoder);
         let d_model = cfg.d_model;
         let shared_vb = if vb.contains_tensor("shared.weight") {

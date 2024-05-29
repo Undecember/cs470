@@ -51,12 +51,13 @@ fn main() -> Result<()> {
         prompt,
         &mut tokenizer,
     )?;
+    let (reports, kl_divs) = (reports.task_reports, reports.kl_divs);
 
-    for (title, report, filename) in [
-        ("Draft only", reports.0, "draft.timings"),
-        ("Target only", reports.1, "target.timings"),
-        ("Speculative sampling", reports.2, "spec.timings"),
-    ] {
+    for (report, (title, filename)) in reports.iter().zip([
+        ("Draft only", "draft.timings"),
+        ("Target only", "target.timings"),
+        ("Speculative sampling", "spec.timings"),
+    ]) {
         info!("[ {} ]", title.bold());
         info!(
             "Generation speed : {:.3} ms/token ({:.3} ms / {} tokens in total)",
@@ -76,5 +77,16 @@ fn main() -> Result<()> {
         );
         report.export_timings(filename)?;
     }
+    info!("[ {} ]", "Statistics".bold());
+    info!(
+        "Average KL divergence for accepted tokens : {:.5} (total {} tokens)",
+        kl_divs.0.iter().sum::<f64>() / kl_divs.0.len() as f64,
+        kl_divs.0.len(),
+    );
+    info!(
+        "Average KL divergence for rejected tokens : {:.5} (total {} tokens)",
+        kl_divs.1.iter().sum::<f64>() / kl_divs.1.len() as f64,
+        kl_divs.1.len(),
+    );
     Ok(())
 }

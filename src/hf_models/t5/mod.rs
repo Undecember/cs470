@@ -20,7 +20,7 @@ pub struct T5ModelArgs {
     pub seed: u64,
     pub top_p: Option<f64>,
     pub no_kv_cache: bool,
-    pub repeat_penalty: f32,
+    pub repeat_penalty: f64,
 }
 
 pub struct T5Model {
@@ -30,7 +30,7 @@ pub struct T5Model {
     pub temperature: f64,
     pub top_p: Option<f64>,
     pub seed: u64,
-    pub repeat_penalty: f32,
+    pub repeat_penalty: f64,
     pub runner: Arc<RwLock<T5Runner>>,
 }
 
@@ -63,11 +63,8 @@ impl T5Model {
             )?
         };
         let rng = rand::rngs::StdRng::seed_from_u64(args.seed);
-        let runner = Arc::new(RwLock::new(T5Runner::load(
-            vb,
-            &config,
-            device.clone(),
-        )?));
+        let runner =
+            Arc::new(RwLock::new(T5Runner::load(vb, &config, device.clone())?));
 
         Ok((
             Self {
@@ -82,6 +79,10 @@ impl T5Model {
             },
             tokenizer,
         ))
+    }
+
+    pub fn reset_rng(&mut self) {
+        self.rng = rand::rngs::StdRng::seed_from_u64(self.seed);
     }
 }
 

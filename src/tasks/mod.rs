@@ -12,13 +12,18 @@ use crate::hf_models::t5::T5Model;
 use anyhow::{Error as E, Result};
 use tokenizers::Tokenizer;
 
+pub struct ExpReport {
+    pub task_reports: Vec<TaskReport>,
+    pub kl_divs: (Vec<f64>, Vec<f64>),
+}
+
 pub fn run_exp(
     args: &Args,
     draft_model: &mut T5Model,
     target_model: &mut T5Model,
     prompt: String,
     tokenizer: &mut Tokenizer,
-) -> Result<(TaskReport, TaskReport, TaskReport)> {
+) -> Result<ExpReport> {
     let tokenizer = tokenizer
         .with_padding(None)
         .with_truncation(None)
@@ -31,14 +36,30 @@ pub fn run_exp(
 
     let draft_report =
         single_sampling(RunnerType::Draft, draft_model, &tokens, args.max_tokens)?;
+    draft_model.reset_rng();
     let target_report =
         single_sampling(RunnerType::Target, target_model, &tokens, args.max_tokens)?;
+    target_model.reset_rng();
     let spec_report = speculative_sampling(
         draft_model,
         target_model,
         args.gamma,
         &tokens,
         args.max_tokens,
+        None,
     )?;
-    Ok((draft_report, target_report, spec_report))
+    draft_model.reset_rng();
+    target_model.reset_rng();
+    let kl_report = speculative_sampling(
+        draft_model,
+        target_model,
+        args.gamma,
+        &tokens,
+        args.max_tokens,
+        Some(args.kl_epsilon),
+    )?;
+    Ok(ExpReport {
+        task_reports: vec![draft_report, target_report, spec_report],
+        kl_divs: kl_report.kl_divs.unwrap(),
+    })
 }

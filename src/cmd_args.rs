@@ -101,7 +101,11 @@ pub struct Args {
 
     /// Repeat penalty
     #[arg(long, default_value_t = 1.1)]
-    pub repeat_penalty: f32,
+    pub repeat_penalty: f64,
+
+    /// Epsilon for smoothed KL divergence
+    #[arg(long, default_value_t = 0.001)]
+    pub kl_epsilon: f64,
 }
 
 impl Args {
@@ -140,8 +144,12 @@ impl Args {
             if self.no_kv_cache { "No" } else { "Using" }.bold()
         );
         info!(
-            "Repeat_penalty : {}\n",
+            "Repeat penalty : {}",
             format!("{:.2}", self.repeat_penalty).bold()
+        );
+        info!(
+            "Epsilon (KL) : {}\n",
+            format!("{:.3}", self.kl_epsilon).bold()
         );
     }
 

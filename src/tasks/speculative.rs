@@ -10,6 +10,7 @@ pub fn sampling(
     gamma: usize,
     tokens: &[u32],
     max_tokens: usize,
+    kl_epsilon: Option<f64>,
 ) -> Result<TaskReport> {
     let report = Arc::new(TaskReport::new());
     let output_tokens = [target_model
@@ -18,6 +19,7 @@ pub fn sampling(
         .unwrap_or(target_model.config.pad_token_id) as u32]
     .to_vec();
     let mut accept_report = Vec::new();
+    let mut kl_divs = (Vec::new(), Vec::new());
     let eos_token_id = target_model.config.eos_token_id as u32;
 
     let input_tokens = Tensor::new(tokens, &draft_model.device)?.unsqueeze(0)?;
@@ -111,7 +113,13 @@ pub fn sampling(
             );
             if target_model.prob_test(accept_prob) {
                 accept_cnt += 1;
+                if let Some(eps) = kl_epsilon {
+                    kl_divs.0.push(kl_div(p.as_slice(), qs[j].as_slice(), eps));
+                }
             } else {
+                if let Some(eps) = kl_epsilon {
+                    kl_divs.1.push(kl_div(p.as_slice(), qs[j].as_slice(), eps));
+                }
                 break;
             }
         }
@@ -144,7 +152,8 @@ pub fn sampling(
             let p = target_model.p_from_logits(
                 &target_logitss,
                 accept_cnt,
-                output_tokens_read.as_slice())?;
+                output_tokens_read.as_slice(),
+            )?;
             let p: Vec<f32> = p
                 .iter()
                 .zip(&qs[accept_cnt])
@@ -192,6 +201,22 @@ pub fn sampling(
     let mut report = Arc::into_inner(report).unwrap();
     report.set_output_tokens(output_tokens.read().unwrap().as_slice());
     report.set_accept_report(accept_report.as_slice());
+    if kl_epsilon.is_some() {
+        report.set_kl_divs(kl_divs);
+    }
     report.sort_timings();
     Ok(report)
+}
+
+fn kl_div(p: &[f32], q: &[f32], eps: f64) -> f64 {
+    let p = Vec::from(p);
+    let q = Vec::from(q);
+    let eps = eps as f32;
+    let p: Vec<f32> = p.iter().map(|v| v + eps).collect();
+    let q: Vec<f32> = q.iter().map(|v| v + eps).collect();
+    let p_sum = p.iter().sum::<f32>();
+    let q_sum = p.iter().sum::<f32>();
+    let p: Vec<f32> = p.iter().map(|v| v / p_sum).collect();
+    let q: Vec<f32> = q.iter().map(|v| v / q_sum).collect();
+    p.iter().zip(q).map(|(p, q)| p * (p / q).ln()).sum::<f32>() as f64
 }

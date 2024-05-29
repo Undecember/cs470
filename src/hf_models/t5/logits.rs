@@ -21,7 +21,7 @@ impl T5Model {
             let start_at = output_tokens.len().saturating_sub(64);
             candle_transformers::utils::apply_repeat_penalty(
                 &logits,
-                self.repeat_penalty,
+                self.repeat_penalty as f32,
                 &output_tokens[start_at..],
             )
             .map_err(E::msg)?
