@@ -52,6 +52,10 @@ pub struct PromptArgs {
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
+    /// For quiet run
+    #[arg(long, default_value = "false")]
+    pub quiet: bool,
+
     #[clap(flatten)]
     pub prompt_group: PromptArgs,
 
@@ -70,6 +74,14 @@ pub struct Args {
     /// Gamma value for speculative sampling
     #[arg(short = 'g', long, default_value_t = 5)]
     pub gamma: usize,
+
+    /// Lenience
+    #[arg(long, default_value_t = 1.)]
+    pub lenience: f64,
+
+    /// K-skipping
+    #[arg(long, default_value_t = 1)]
+    pub k_skipping: usize,
 
     /// Maximum number of tokens to generate
     #[arg(short = 'n', long, default_value_t = 1000)]
@@ -97,7 +109,11 @@ pub struct Args {
 
     /// Repeat penalty
     #[arg(long, default_value_t = 1.1)]
-    pub repeat_penalty: f32,
+    pub repeat_penalty: f64,
+
+    /// Epsilon for smoothed KL divergence
+    #[arg(long, default_value_t = 0.001)]
+    pub kl_epsilon: f64,
 }
 
 impl Args {
@@ -115,6 +131,8 @@ impl Args {
             Self::whichmodel_to_repo(self.draft_model_repo).0.bold()
         );
         info!("Gamma : {}", self.gamma.to_string().bold());
+        info!("Lenience : {}", format!("{:.3}", self.lenience).bold());
+        info!("K-skipping : {}", self.k_skipping.to_string().bold());
         info!("Max tokens : {}", self.max_tokens.to_string().bold());
         info!(
             "Temperature : {}",
@@ -136,8 +154,12 @@ impl Args {
             if self.no_kv_cache { "No" } else { "Using" }.bold()
         );
         info!(
-            "Repeat_penalty : {}\n",
+            "Repeat penalty : {}",
             format!("{:.2}", self.repeat_penalty).bold()
+        );
+        info!(
+            "Epsilon (KL) : {}\n",
+            format!("{:.3}", self.kl_epsilon).bold()
         );
     }
 

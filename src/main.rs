@@ -3,15 +3,16 @@ use candle_core::Device;
 use colored::Colorize;
 use cs470::cmd_args::parse_args;
 use cs470::hf_models::t5::T5Model;
-use cs470::tasks::single::sampling as single_sampling;
-use cs470::tasks::speculative::sampling as speculative_sampling;
+use cs470::tasks::run_exp;
 use log::info;
 use std::sync::Arc;
 
 fn main() -> Result<()> {
-    std::env::set_var("RUST_LOG", "trace");
+    let args = &parse_args();
+
+    std::env::set_var("RUST_LOG", if args.quiet { "off" } else { "trace" });
     env_logger::init();
-    let args = parse_args();
+
     args.review();
 
     let device = if args.cpu {
@@ -34,76 +35,58 @@ fn main() -> Result<()> {
     let prompt = format!(
         "{}{}",
         args.get_prefix(),
-        if let Some(file) = args.prompt_group.prompt_file {
+        if let Some(file) = &args.prompt_group.prompt_file {
             std::fs::read_to_string(file)?
         } else {
-            args.prompt_group.prompt.unwrap()
+            args.prompt_group.prompt.as_ref().unwrap().clone()
         }
     );
-    let tokenizer = tokenizer
-        .with_padding(None)
-        .with_truncation(None)
-        .map_err(E::msg)?;
-    let tokens = tokenizer
-        .encode(prompt.clone(), true)
-        .map_err(E::msg)?
-        .get_ids()
-        .to_vec();
 
-    info!("Start generating.\n");
-    info!("[ {} ]", "Draft only".bold());
-    let result = single_sampling(&mut draft_model, &tokens, args.max_tokens)?;
-    let dur = result.total_dur();
-    info!(
-        "Generation speed : {:.3} ms/token",
-        dur.as_millis() as f64 / result.output_tokens.len() as f64
-    );
-    info!(
-        "Generated text : {}\n",
-        tokenizer
-            .decode(&result.output_tokens, true)
-            .map_err(E::msg)?
-            .cyan()
-    );
-    result.export_timings("draft.timings", "draft")?;
-
-    info!("[ {} ]", "Target only".bold());
-    let result = single_sampling(&mut target_model, &tokens, args.max_tokens)?;
-    let dur = result.total_dur();
-    info!(
-        "Generation speed : {:.3} ms/token",
-        dur.as_millis() as f64 / result.output_tokens.len() as f64
-    );
-    info!(
-        "Generated text : {}\n",
-        tokenizer
-            .decode(&result.output_tokens, true)
-            .map_err(E::msg)?
-            .cyan()
-    );
-    result.export_timings("target.timings", "target")?;
-
-    info!("[ {} ]", "Speculative sampling".bold());
-    let result = speculative_sampling(
-        draft_model,
-        target_model,
-        args.gamma,
-        &tokens,
-        args.max_tokens,
+    info!("");
+    info!("Start experiment.\n");
+    let reports = run_exp(
+        args,
+        &mut draft_model,
+        &mut target_model,
+        prompt,
+        &mut tokenizer,
     )?;
-    let dur = result.total_dur();
-    info!(
-        "Generation speed : {:.3} ms/token",
-        dur.as_millis() as f64 / result.output_tokens.len() as f64
-    );
-    info!(
-        "Generated text : {}\n",
-        tokenizer
-            .decode(&result.output_tokens, true)
-            .map_err(E::msg)?
-            .cyan()
-    );
-    result.export_timings("speculative.timings")?;
+    let (reports, kl_divs) = (reports.task_reports, reports.kl_divs);
 
+    for (report, (title, filename)) in reports.iter().zip([
+        ("Draft only", "draft.timings"),
+        ("Target only", "target.timings"),
+        ("Speculative sampling", "spec.timings"),
+    ]) {
+        info!("[ {} ]", title.bold());
+        info!(
+            "Generation speed : {:.3} ms/token ({:.3} ms / {} tokens in total)",
+            report.total_millis() / report.output_tokens.len() as f64,
+            report.total_millis(),
+            report.output_tokens.len(),
+        );
+        if let Some(rate) = report.acceptance_rate() {
+            info!("Acceptance rate : {:.3}", rate);
+        }
+        info!(
+            "Generated text : {}\n",
+            tokenizer
+                .decode(&report.output_tokens, true)
+                .map_err(E::msg)?
+                .cyan()
+        );
+        report.export_timings(filename)?;
+    }
+    info!("[ {} ]", "Statistics".bold());
+    info!(
+        "Average KL divergence for accepted tokens : {:.5} (total {} tokens)",
+        kl_divs.0.iter().sum::<f64>() / kl_divs.0.len() as f64,
+        kl_divs.0.len(),
+    );
+    info!(
+        "Average KL divergence for rejected tokens : {:.5} (total {} tokens)",
+        kl_divs.1.iter().sum::<f64>() / kl_divs.1.len() as f64,
+        kl_divs.1.len(),
+    );
     Ok(())
 }
