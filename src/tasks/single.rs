@@ -17,7 +17,10 @@ pub fn sampling(
     .to_vec();
 
     let input_tokens = Tensor::new(tokens, &model.device)?.unsqueeze(0)?;
-    let encoder_output = model.runner.write().unwrap().encode(&input_tokens)?;
+    let mut runner_write = model.runner.write().unwrap();
+    runner_write.clear_kv_cache();
+    let encoder_output = runner_write.encode(&input_tokens)?;
+    drop(runner_write);
     for i in 0..max_tokens {
         let span = report.start(runner_type, ActionType::ForwardKV, i);
         let decoder_output = model.runner.write().unwrap().forward_kv_cache(

@@ -25,7 +25,8 @@ pub struct TimingReportItem {
 
 pub struct TaskReport {
     pub output_tokens: Vec<u32>,
-    timings_report: RwLock<Vec<Arc<RwLock<TimingReportItem>>>>,
+    pub accept_report: Option<Vec<(u32, u32)>>,
+    pub timings_report: RwLock<Vec<Arc<RwLock<TimingReportItem>>>>,
 }
 
 impl Default for TaskReport {
@@ -38,6 +39,7 @@ impl TaskReport {
     pub fn new() -> Self {
         Self {
             output_tokens: Vec::new(),
+            accept_report: None,
             timings_report: RwLock::new(Vec::new()),
         }
     }
@@ -66,6 +68,10 @@ impl TaskReport {
     pub fn set_output_tokens(&mut self, tokens: &[u32]) {
         self.output_tokens.clear();
         self.output_tokens.extend_from_slice(tokens);
+    }
+
+    pub fn set_accept_report(&mut self, report: &[(u32, u32)]) {
+        self.accept_report = Some(Vec::from(report));
     }
 
     pub fn sort_timings(&mut self) {

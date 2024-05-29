@@ -6,8 +6,8 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 
 pub fn sampling(
-    mut draft_model: T5Model,
-    mut target_model: T5Model,
+    draft_model: &mut T5Model,
+    target_model: &mut T5Model,
     gamma: usize,
     tokens: &[u32],
     max_tokens: usize,
@@ -18,6 +18,7 @@ pub fn sampling(
         .decoder_start_token_id
         .unwrap_or(target_model.config.pad_token_id) as u32]
     .to_vec();
+    let mut accept_report = Vec::new();
     let eos_token_id = target_model.config.eos_token_id as u32;
 
     let input_tokens = Tensor::new(tokens, &draft_model.device)?.unsqueeze(0)?;
@@ -149,6 +150,7 @@ pub fn sampling(
                 break;
             }
         }
+        accept_report.push((accept_cnt as u32, cur_gamma as u32));
         if output_tokens.read().unwrap()[i + accept_cnt - 1] == eos_token_id {
             break;
         }
@@ -218,6 +220,7 @@ pub fn sampling(
     }
     let mut report = Arc::into_inner(report).unwrap();
     report.set_output_tokens(output_tokens.read().unwrap().as_slice());
+    report.set_accept_report(accept_report.as_slice());
     report.sort_timings();
     Ok(report)
 }
