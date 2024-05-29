@@ -2,7 +2,7 @@ use super::attention::{T5LayerCrossAttention, T5LayerSelfAttention};
 use super::layers::{T5LayerFF, T5LayerNorm};
 use super::T5Config;
 
-use anyhow::{Error as E, Result as AResult};
+use anyhow::Result as AResult;
 use candle_core::{Device, Module, Result, Tensor};
 use candle_nn::{embedding, linear_no_bias, Embedding, Linear, VarBuilder};
 use std::sync::Arc;
@@ -167,7 +167,6 @@ pub struct T5Runner {
     lm_head: Option<Linear>,
     shared: Arc<Embedding>,
     device: Arc<Device>,
-    repeat_penalty: f32,
     use_cache: bool,
 }
 
@@ -184,7 +183,6 @@ impl T5Runner {
         vb: VarBuilder,
         cfg: &T5Config,
         device: Arc<Device>,
-        repeat_penalty: f32,
     ) -> Result<Self> {
         assert!(cfg.is_encoder_decoder);
         let d_model = cfg.d_model;
@@ -227,7 +225,6 @@ impl T5Runner {
             lm_head,
             shared,
             device,
-            repeat_penalty,
             use_cache: cfg.use_cache,
         })
     }
@@ -261,37 +258,16 @@ impl T5Runner {
             .forward(pad, &decoder_tokens, Some(encoder_output))
     }
 
-    pub fn get_logits(
-        &self,
-        decoder_output: Tensor,
-        output_tokens: &[u32],
-    ) -> AResult<Tensor> {
+    pub fn get_logits(&self, decoder_output: Tensor) -> Result<Tensor> {
         let scaling_factor = if self.tie_word_embeddings {
             (self.d_model as f64).sqrt()
         } else {
             1.0
         };
-        let sequence_output = ((decoder_output
-            .narrow(1, decoder_output.dim(1)? - 1, 1)?
-            .squeeze(1)?)
-            * scaling_factor)?;
-        let logits = {
-            match self.lm_head {
-                None => sequence_output.matmul(&self.shared.embeddings().t()?)?,
-                Some(ref lm_head) => lm_head.forward(&sequence_output)?,
-            }
-        }
-        .squeeze(0)?;
-        if self.repeat_penalty == 1. {
-            Ok(logits)
-        } else {
-            let start_at = output_tokens.len().saturating_sub(64);
-            candle_transformers::utils::apply_repeat_penalty(
-                &logits,
-                self.repeat_penalty,
-                &output_tokens[start_at..],
-            )
-            .map_err(E::msg)
+        let sequence_output = (decoder_output.squeeze(0)? * scaling_factor)?;
+        match self.lm_head {
+            None => sequence_output.matmul(&self.shared.embeddings().t()?),
+            Some(ref lm_head) => lm_head.forward(&sequence_output),
         }
     }
 }

@@ -52,6 +52,10 @@ pub struct PromptArgs {
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
+    /// For quiet run
+    #[arg(long, default_value = "false")]
+    pub quiet: bool,
+
     #[clap(flatten)]
     pub prompt_group: PromptArgs,
 

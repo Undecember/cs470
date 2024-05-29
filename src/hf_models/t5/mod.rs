@@ -67,7 +67,6 @@ impl T5Model {
             vb,
             &config,
             device.clone(),
-            args.repeat_penalty,
         )?));
 
         Ok((

@@ -8,9 +8,11 @@ use log::info;
 use std::sync::Arc;
 
 fn main() -> Result<()> {
-    std::env::set_var("RUST_LOG", "trace");
-    env_logger::init();
     let args = &parse_args();
+
+    std::env::set_var("RUST_LOG", if args.quiet { "off" } else { "trace" });
+    env_logger::init();
+
     args.review();
 
     let device = if args.cpu {
@@ -40,7 +42,7 @@ fn main() -> Result<()> {
         }
     );
 
-    println!("");
+    info!("");
     info!("Start experiment.\n");
     let reports = run_exp(
         args,
@@ -57,9 +59,14 @@ fn main() -> Result<()> {
     ] {
         info!("[ {} ]", title.bold());
         info!(
-            "Generation speed : {:.3} ms/token",
-            report.total_millis() / report.output_tokens.len() as f64
+            "Generation speed : {:.3} ms/token ({:.3} ms / {} tokens in total)",
+            report.total_millis() / report.output_tokens.len() as f64,
+            report.total_millis(),
+            report.output_tokens.len(),
         );
+        if let Some(rate) = report.acceptance_rate() {
+            info!("Acceptance rate : {:.3}", rate);
+        }
         info!(
             "Generated text : {}\n",
             tokenizer

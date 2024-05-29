@@ -3,7 +3,6 @@ use crate::hf_models::t5::T5Model;
 use anyhow::Result;
 use candle_core::Tensor;
 use std::sync::{Arc, RwLock};
-use std::thread;
 
 pub fn sampling(
     draft_model: &mut T5Model,
@@ -59,14 +58,18 @@ pub fn sampling(
                 .runner
                 .write()
                 .unwrap()
-                .get_logits(draft_decoder_output, output_tokens_read.as_slice())?;
+                .get_logits(draft_decoder_output)?;
             report.end(span);
-            drop(output_tokens_read);
             // Sampling
             let span = report.start(RunnerType::Draft, ActionType::Sampling, i + j);
-            qs.push(draft_model.p_from_logits(&logits)?);
+            qs.push(draft_model.p_from_logits(
+                &logits,
+                0,
+                output_tokens_read.as_slice(),
+            )?);
             let next_token = draft_model.sample_from_p(&qs[j])?;
             report.end(span);
+            drop(output_tokens_read);
             output_tokens.write().unwrap().push(next_token);
             new_tokens.push(next_token);
             if next_token == eos_token_id {
@@ -83,63 +86,25 @@ pub fn sampling(
             &target_encoder_output,
             output_tokens.read().unwrap().as_slice(),
         )?;
-        let mut target_decoder_outputs = {
-            let mut res = Vec::<Tensor>::with_capacity(cur_gamma + 1);
-            for j in 0..cur_gamma + 1 {
-                res.push(target_decoder_outputs.get_on_dim(1, j)?.unsqueeze(0)?);
-            }
-            res
-        };
         report.end(span);
         drop(target_runner_write);
-        // Target (parallel)
-        let target_logitss = Arc::new(RwLock::new(Vec::new()));
-        thread::scope(|s| {
-            for j in 0..cur_gamma + 1 {
-                let logitss = target_logitss.clone();
-                let report = report.clone();
-                let runner = target_model.runner.clone();
-                let output_tokens = output_tokens.clone();
-                let decoder_output = if let Some(d) = target_decoder_outputs.pop() {
-                    d
-                } else {
-                    panic!("Missing target decoder output index {}, {}", i, j);
-                };
-                s.spawn(move || {
-                    // LogitsCalc
-                    let span = report.start(
-                        RunnerType::Target,
-                        ActionType::LogitsCalc,
-                        i + j,
-                    );
-                    let logits = if let Ok(l) = runner.read().unwrap().get_logits(
-                        decoder_output,
-                        output_tokens.read().unwrap().as_slice(),
-                    ) {
-                        l
-                    } else {
-                        panic!("Failed to get logit index {}, {}", i, j);
-                    };
-                    report.end(span);
-                    logitss.write().unwrap().push((j, logits));
-                });
-            }
-        });
-        let target_logits = {
-            let mut res = Vec::new();
-            target_logitss
-                .write()
-                .unwrap()
-                .sort_by(|a, b| a.0.cmp(&b.0));
-            while let Some((_, logits)) = target_logitss.write().unwrap().pop() {
-                res.push(logits);
-            }
-            res
-        };
+        // Target (LogitsCalc)
+        let span =
+            report.start(RunnerType::Target, ActionType::LogitsCalc, i + cur_gamma);
+        let target_logitss = target_model
+            .runner
+            .read()
+            .unwrap()
+            .get_logits(target_decoder_outputs)?;
+        report.end(span);
         let mut accept_cnt = 0;
+        let output_tokens_read = output_tokens.read().unwrap();
         for j in 0..cur_gamma {
-            let logits = &target_logits[j];
-            let p = target_model.p_from_logits(logits)?;
+            let p = target_model.p_from_logits(
+                &target_logitss,
+                j,
+                output_tokens_read.as_slice(),
+            )?;
             let accept_prob = f32::min(
                 1_f32,
                 p[new_tokens[j] as usize] / qs[j][new_tokens[j] as usize],
@@ -151,30 +116,35 @@ pub fn sampling(
             }
         }
         accept_report.push((accept_cnt as u32, cur_gamma as u32));
-        if output_tokens.read().unwrap()[i + accept_cnt - 1] == eos_token_id {
+        if output_tokens_read[i + accept_cnt - 1] == eos_token_id {
             break;
         }
         let new_token = if accept_cnt == cur_gamma {
-            let logits = &target_logits[cur_gamma];
             // Upsample
             let span = report.start(
                 RunnerType::Target,
                 ActionType::Sampling,
                 i + accept_cnt,
             );
-            let p = target_model.p_from_logits(logits)?;
+            let p = target_model.p_from_logits(
+                &target_logitss,
+                cur_gamma,
+                output_tokens_read.as_slice(),
+            )?;
             let new_token = target_model.sample_from_p(&p)?;
             report.end(span);
             new_token
         } else {
-            let logits = &target_logits[accept_cnt];
             // Resample
             let span = report.start(
                 RunnerType::Target,
                 ActionType::Sampling,
                 i + accept_cnt,
             );
-            let p = target_model.p_from_logits(logits)?;
+            let p = target_model.p_from_logits(
+                &target_logitss,
+                accept_cnt,
+                output_tokens_read.as_slice())?;
             let p: Vec<f32> = p
                 .iter()
                 .zip(&qs[accept_cnt])
@@ -184,6 +154,7 @@ pub fn sampling(
             report.end(span);
             new_token
         };
+        drop(output_tokens_read);
         if new_token == eos_token_id {
             break;
         }

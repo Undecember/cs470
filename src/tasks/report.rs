@@ -97,6 +97,20 @@ impl TaskReport {
         (mx - mn).as_micros() as f64 / 1000_f64
     }
 
+    pub fn acceptance_rate(&self) -> Option<f64> {
+        if let Some(report) = self.accept_report.as_ref() {
+            let mut res = 0_f64;
+            let mut cnt = 0_f64;
+            for (a, g) in report {
+                res += *a as f64 / *g as f64;
+                cnt += 1_f64;
+            }
+            Some(res / cnt)
+        } else {
+            None
+        }
+    }
+
     pub fn export_timings(&self, file_path: &str) -> Result<()> {
         let mut buf = String::new();
 

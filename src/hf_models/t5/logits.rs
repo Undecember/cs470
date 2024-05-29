@@ -1,12 +1,31 @@
 use super::T5Model;
-use anyhow::Result;
+use anyhow::{Error as E, Result};
 use candle_core::{DType, Tensor};
 use rand::distributions::Distribution;
 use rand::Rng;
 
 impl T5Model {
-    pub fn p_from_logits(&self, logits: &Tensor) -> Result<Vec<f32>> {
-        let logits = logits.to_dtype(DType::F32)?;
+    pub fn p_from_logits(
+        &self,
+        logits: &Tensor,
+        index: usize,
+        output_tokens: &[u32],
+    ) -> Result<Vec<f32>> {
+        let logits = logits
+            .get_on_dim(0, index)?
+            .squeeze(0)?
+            .to_dtype(DType::F32)?;
+        let logits = if self.repeat_penalty == 1. {
+            logits
+        } else {
+            let start_at = output_tokens.len().saturating_sub(64);
+            candle_transformers::utils::apply_repeat_penalty(
+                &logits,
+                self.repeat_penalty,
+                &output_tokens[start_at..],
+            )
+            .map_err(E::msg)?
+        };
         let logits = (&logits / self.temperature)?;
         let prs = candle_nn::ops::softmax_last_dim(&logits)?;
         let prs = prs.to_vec1()?;

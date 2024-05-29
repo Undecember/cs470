@@ -30,14 +30,10 @@ pub fn sampling(
         )?;
         report.end(span);
         let span = report.start(runner_type, ActionType::LogitsCalc, i);
-        let logits = model
-            .runner
-            .read()
-            .unwrap()
-            .get_logits(decoder_output, &output_tokens)?;
+        let logits = model.runner.read().unwrap().get_logits(decoder_output)?;
         report.end(span);
         let span = report.start(runner_type, ActionType::Sampling, i);
-        let p = model.p_from_logits(&logits)?;
+        let p = model.p_from_logits(&logits, 0, output_tokens.as_slice())?;
         let next_token = model.sample_from_p(&p)?;
         report.end(span);
         if next_token as usize == model.config.eos_token_id {
