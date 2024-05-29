@@ -8,6 +8,7 @@ pub fn sampling(
     draft_model: &mut T5Model,
     target_model: &mut T5Model,
     gamma: usize,
+    lenience: f64,
     tokens: &[u32],
     max_tokens: usize,
     kl_epsilon: Option<f64>,
@@ -109,7 +110,9 @@ pub fn sampling(
             )?;
             let accept_prob = f32::min(
                 1_f32,
-                p[new_tokens[j] as usize] / qs[j][new_tokens[j] as usize],
+                p[new_tokens[j] as usize]
+                    / qs[j][new_tokens[j] as usize]
+                    / lenience as f32,
             );
             if target_model.prob_test(accept_prob) {
                 accept_cnt += 1;

@@ -75,6 +75,10 @@ pub struct Args {
     #[arg(short = 'g', long, default_value_t = 5)]
     pub gamma: usize,
 
+    /// Lenience
+    #[arg(long, default_value_t = 1.)]
+    pub lenience: f64,
+
     /// Maximum number of tokens to generate
     #[arg(short = 'n', long, default_value_t = 1000)]
     pub max_tokens: usize,
@@ -123,6 +127,7 @@ impl Args {
             Self::whichmodel_to_repo(self.draft_model_repo).0.bold()
         );
         info!("Gamma : {}", self.gamma.to_string().bold());
+        info!("Lenience : {}", format!("{:.3}", self.lenience).bold(),);
         info!("Max tokens : {}", self.max_tokens.to_string().bold());
         info!(
             "Temperature : {}",
