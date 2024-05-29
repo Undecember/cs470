@@ -15,6 +15,14 @@ pub enum WhichModel {
     T5_3B,
     #[value(name = "11b")]
     T5_11B,
+    #[value(name = "fsmall")]
+    FlanT5Small,
+    #[value(name = "fbase")]
+    FlanT5Base,
+    #[value(name = "flarge")]
+    FlanT5Large,
+    #[value(name = "fxl")]
+    FlanT5XLarge,
 }
 
 #[derive(Clone, Debug, Copy, ValueEnum)]
@@ -168,6 +176,10 @@ impl Args {
             WhichModel::T5Large => ("google-t5/t5-large", "main"),
             WhichModel::T5_3B => ("google-t5/t5-3b", "main"),
             WhichModel::T5_11B => ("google-t5/t5-11b", "refs/pr/6"),
+            WhichModel::FlanT5Small => ("google/flan-t5-small", "main"),
+            WhichModel::FlanT5Base => ("google/flan-t5-base", "main"),
+            WhichModel::FlanT5Large => ("google/flan-t5-large", "main"),
+            WhichModel::FlanT5XLarge => ("google/flan-t5-xl", "main"),
         };
         (res.0.to_string(), res.1.to_string())
     }

@@ -252,6 +252,8 @@ pub fn sampling(
                 1_f32,
                 p[new_tokens[j] as usize] / qs[j][new_tokens[j] as usize],
             );
+            // log::info!("p : {:?}", p[new_tokens[j] as usize]);
+            // log::info!("q : {:?}", qs[j][new_tokens[j] as usize]);
             if target_model.prob_test(accept_prob) {
                 accept_cnt += 1;
             } else {
