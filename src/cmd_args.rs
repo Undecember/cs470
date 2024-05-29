@@ -79,6 +79,10 @@ pub struct Args {
     #[arg(long, default_value_t = 1.)]
     pub lenience: f64,
 
+    /// K-skipping
+    #[arg(long, default_value_t = 1)]
+    pub k_skipping: usize,
+
     /// Maximum number of tokens to generate
     #[arg(short = 'n', long, default_value_t = 1000)]
     pub max_tokens: usize,
@@ -127,7 +131,8 @@ impl Args {
             Self::whichmodel_to_repo(self.draft_model_repo).0.bold()
         );
         info!("Gamma : {}", self.gamma.to_string().bold());
-        info!("Lenience : {}", format!("{:.3}", self.lenience).bold(),);
+        info!("Lenience : {}", format!("{:.3}", self.lenience).bold());
+        info!("K-skipping : {}", self.k_skipping.to_string().bold());
         info!("Max tokens : {}", self.max_tokens.to_string().bold());
         info!(
             "Temperature : {}",

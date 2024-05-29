@@ -9,6 +9,7 @@ pub fn sampling(
     target_model: &mut T5Model,
     gamma: usize,
     lenience: f64,
+    k_skipping: usize,
     tokens: &[u32],
     max_tokens: usize,
     kl_epsilon: Option<f64>,
@@ -114,7 +115,7 @@ pub fn sampling(
                     / qs[j][new_tokens[j] as usize]
                     / lenience as f32,
             );
-            if target_model.prob_test(accept_prob) {
+            if target_model.prob_test(accept_prob) || (i + j) % k_skipping > 0 {
                 accept_cnt += 1;
                 if let Some(eps) = kl_epsilon {
                     kl_divs.0.push(kl_div(p.as_slice(), qs[j].as_slice(), eps));
