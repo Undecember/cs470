@@ -1,5 +1,10 @@
+mod attention;
+mod config;
+mod layers;
 pub mod logits;
 pub mod runner;
+
+pub use config::T5Config;
 
 use anyhow::{Error as E, Result};
 use candle_core::{DType, Device};
@@ -21,7 +26,7 @@ pub struct T5ModelArgs {
 pub struct T5Model {
     pub device: Arc<Device>,
     pub rng: rand::rngs::StdRng,
-    pub config: runner::Config,
+    pub config: T5Config,
     pub temperature: f64,
     pub top_p: Option<f64>,
     pub seed: u64,
@@ -43,7 +48,7 @@ impl T5Model {
         let tokenizer_filename = repo.get("tokenizer.json")?;
         let weights_filename = vec![repo.get("model.safetensors")?];
         let config = std::fs::read_to_string(config_filename)?;
-        let mut config: runner::Config = serde_json::from_str(&config)?;
+        let mut config: T5Config = serde_json::from_str(&config)?;
         config.use_cache = !args.no_kv_cache;
         let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
         let vb = unsafe {

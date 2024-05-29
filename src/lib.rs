@@ -1,3 +1,3 @@
 pub mod cmd_args;
-pub mod t5;
+pub mod hf_models;
 pub mod tasks;

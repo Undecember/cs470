@@ -1,4 +1,4 @@
-use crate::t5::T5ModelArgs;
+use crate::hf_models::t5::T5ModelArgs;
 use clap::{Parser, ValueEnum};
 use colored::Colorize;
 use log::info;

@@ -2,7 +2,7 @@ use anyhow::{Error as E, Result};
 use candle_core::Device;
 use colored::Colorize;
 use cs470::cmd_args::parse_args;
-use cs470::t5::T5Model;
+use cs470::hf_models::t5::T5Model;
 use cs470::tasks::single::sampling as single_sampling;
 use cs470::tasks::speculative::sampling as speculative_sampling;
 use log::info;
