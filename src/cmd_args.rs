@@ -1,4 +1,4 @@
-use crate::t5::T5ModelArgs;
+use crate::hf_models::t5::T5ModelArgs;
 use clap::{Parser, ValueEnum};
 use colored::Colorize;
 use log::info;
@@ -15,6 +15,26 @@ pub enum WhichModel {
     T5_3B,
     #[value(name = "11b")]
     T5_11B,
+    #[value(name = "fsmall")]
+    FlanT5Small,
+    #[value(name = "fbase")]
+    FlanT5Base,
+    #[value(name = "flarge")]
+    FlanT5Large,
+    #[value(name = "fxl")]
+    FlanT5XLarge,
+}
+
+#[derive(Clone, Debug, Copy, ValueEnum)]
+pub enum WhichPrefix {
+    #[value(name = "summarize")]
+    Summarize,
+    #[value(name = "translate-german")]
+    TranslateGerman,
+    #[value(name = "translate-french")]
+    TranslateFrench,
+    #[value(name = "translate-romanian")]
+    TranslateRomanian,
 }
 
 #[derive(Parser, Debug)]
@@ -27,7 +47,6 @@ pub struct PromptArgs {
     /// Prompt from file
     #[arg(long)]
     pub prompt_file: Option<String>,
-
 }
 
 #[derive(Parser, Debug)]
@@ -36,11 +55,15 @@ pub struct Args {
     #[clap(flatten)]
     pub prompt_group: PromptArgs,
 
-    /// Target model's repository path.
+    /// Prompt prefix type
+    #[arg(long, default_value = "summarize")]
+    pub prefix: WhichPrefix,
+
+    /// Target model's repository path
     #[arg(short = 't', long, default_value = "3b")]
     pub target_model_repo: WhichModel,
 
-    /// Draft model's repository path.
+    /// Draft model's repository path
     #[arg(short = 'd', long, default_value = "small")]
     pub draft_model_repo: WhichModel,
 
@@ -82,6 +105,7 @@ impl Args {
         if let Some(file) = &self.prompt_group.prompt_file {
             info!("Prompt from file : {}", file.bold());
         }
+        info!("Prefix : {}", self.get_prefix().bold());
         info!(
             "Target model : {}",
             Self::whichmodel_to_repo(self.target_model_repo).0.bold()
@@ -90,13 +114,18 @@ impl Args {
             "Draft model : {}",
             Self::whichmodel_to_repo(self.draft_model_repo).0.bold()
         );
-        info!("Gamma : {}", self.max_tokens.to_string().bold());
+        info!("Gamma : {}", self.gamma.to_string().bold());
         info!("Max tokens : {}", self.max_tokens.to_string().bold());
-        info!("Temperature : {:.2}", self.temperature.to_string().bold());
+        info!(
+            "Temperature : {}",
+            format!("{:.3}", self.temperature).bold()
+        );
         info!("Random seed : {}", self.seed.to_string().bold());
         info!(
             "Top p : {}",
-            self.top_p.map_or("None".to_string(), |p| p.to_string()).bold()
+            self.top_p
+                .map_or("None".to_string(), |p| format!("{:.2}", p))
+                .bold()
         );
         info!(
             "Running on device {}",
@@ -106,7 +135,20 @@ impl Args {
             "{} KV cache",
             if self.no_kv_cache { "No" } else { "Using" }.bold()
         );
-        info!("Repeat_penalty : {:.2}\n", self.repeat_penalty.to_string().bold());
+        info!(
+            "Repeat_penalty : {}\n",
+            format!("{:.2}", self.repeat_penalty).bold()
+        );
+    }
+
+    pub fn get_prefix(&self) -> String {
+        match self.prefix {
+            WhichPrefix::Summarize => "summarize: ",
+            WhichPrefix::TranslateGerman => "translate English to German: ",
+            WhichPrefix::TranslateFrench => "translate English to French: ",
+            WhichPrefix::TranslateRomanian => "translate English to Romanian: ",
+        }
+        .to_string()
     }
 
     pub fn get_draft_repo(&self) -> (String, String) {
@@ -134,6 +176,10 @@ impl Args {
             WhichModel::T5Large => ("google-t5/t5-large", "main"),
             WhichModel::T5_3B => ("google-t5/t5-3b", "main"),
             WhichModel::T5_11B => ("google-t5/t5-11b", "refs/pr/6"),
+            WhichModel::FlanT5Small => ("google/flan-t5-small", "main"),
+            WhichModel::FlanT5Base => ("google/flan-t5-base", "main"),
+            WhichModel::FlanT5Large => ("google/flan-t5-large", "main"),
+            WhichModel::FlanT5XLarge => ("google/flan-t5-xl", "main"),
         };
         (res.0.to_string(), res.1.to_string())
     }

@@ -1,4 +1,4 @@
-use crate::t5::T5Model;
+use crate::hf_models::t5::T5Model;
 use anyhow::Result;
 use candle_core::Tensor;
 use std::sync::{Arc, RwLock};
@@ -190,11 +190,7 @@ pub fn sampling(
         let mut target_decoder_outputs = {
             let mut res = Vec::<Tensor>::with_capacity(cur_gamma + 1);
             for j in 0..cur_gamma + 1 {
-                res.push(
-                    target_decoder_outputs
-                        .get_on_dim(1, j)?
-                        .unsqueeze(0)?,
-                );
+                res.push(target_decoder_outputs.get_on_dim(1, j)?.unsqueeze(0)?);
             }
             res
         };
@@ -256,6 +252,8 @@ pub fn sampling(
                 1_f32,
                 p[new_tokens[j] as usize] / qs[j][new_tokens[j] as usize],
             );
+            // log::info!("p : {:?}", p[new_tokens[j] as usize]);
+            // log::info!("q : {:?}", qs[j][new_tokens[j] as usize]);
             if target_model.prob_test(accept_prob) {
                 accept_cnt += 1;
             } else {

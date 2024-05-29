@@ -2,7 +2,7 @@ use anyhow::{Error as E, Result};
 use candle_core::Device;
 use colored::Colorize;
 use cs470::cmd_args::parse_args;
-use cs470::t5::T5Model;
+use cs470::hf_models::t5::T5Model;
 use cs470::tasks::single::sampling as single_sampling;
 use cs470::tasks::speculative::sampling as speculative_sampling;
 use log::info;
@@ -31,12 +31,15 @@ fn main() -> Result<()> {
         args.get_model_args(),
     )?;
 
-    let prompt = format!("summarize: {}", 
+    let prompt = format!(
+        "{}{}",
+        args.get_prefix(),
         if let Some(file) = args.prompt_group.prompt_file {
             std::fs::read_to_string(file)?
         } else {
             args.prompt_group.prompt.unwrap()
-        });
+        }
+    );
     let tokenizer = tokenizer
         .with_padding(None)
         .with_truncation(None)
