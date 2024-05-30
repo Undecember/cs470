@@ -4,8 +4,8 @@ mod speculative;
 
 pub use report::RunnerType;
 pub use report::TaskReport;
-pub use single::sampling as single_sampling;
-pub use speculative::sampling as speculative_sampling;
+use single::sampling as single_sampling;
+use speculative::sampling as speculative_sampling;
 
 use crate::cmd_args::Args;
 use crate::hf_models::t5::T5Model;

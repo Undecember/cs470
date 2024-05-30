@@ -2,7 +2,7 @@ use anyhow::{Error as E, Result};
 use candle_core::Device;
 use colored::Colorize;
 use cs470::cmd_args::parse_args;
-use cs470::hf_models::t5::T5Model;
+use cs470::hf_models::T5Model;
 use cs470::tasks::run_exp;
 use log::info;
 use std::sync::Arc;
@@ -53,6 +53,8 @@ fn main() -> Result<()> {
     )?;
     let (reports, kl_divs) = (reports.task_reports, reports.kl_divs);
 
+    let mut result_texts = Vec::new();
+
     for (report, (title, filename)) in reports.iter().zip([
         ("Draft only", "draft.timings"),
         ("Target only", "target.timings"),
@@ -68,12 +70,14 @@ fn main() -> Result<()> {
         if let Some(rate) = report.acceptance_rate() {
             info!("Acceptance rate : {:.3}", rate);
         }
-        info!(
-            "Generated text : {}\n",
+        result_texts.push(
             tokenizer
                 .decode(&report.output_tokens, true)
-                .map_err(E::msg)?
-                .cyan()
+                .map_err(E::msg)?,
+        );
+        info!(
+            "Generated text : {}\n",
+            (*result_texts.last().unwrap()).cyan()
         );
         report.export_timings(filename)?;
     }

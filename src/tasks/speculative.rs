@@ -153,7 +153,7 @@ pub fn sampling(
             draft_model.runner.forward_kv_cache(
                 i + accept_cnt - 1..i + accept_cnt,
                 &draft_encoder_output,
-                &report.output_tokens.as_slice(),
+                report.output_tokens.as_slice(),
             )?;
             report.end();
         }

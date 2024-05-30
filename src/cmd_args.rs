@@ -4,7 +4,7 @@ use colored::Colorize;
 use log::info;
 
 #[derive(Clone, Debug, Copy, ValueEnum)]
-pub enum WhichModel {
+pub enum WhichT5 {
     #[value(name = "small")]
     T5Small,
     #[value(name = "base")]
@@ -15,13 +15,13 @@ pub enum WhichModel {
     T5_3B,
     #[value(name = "11b")]
     T5_11B,
-    #[value(name = "fsmall")]
+    #[value(name = "flan-small")]
     FlanT5Small,
-    #[value(name = "fbase")]
+    #[value(name = "flan-base")]
     FlanT5Base,
-    #[value(name = "flarge")]
+    #[value(name = "flan-large")]
     FlanT5Large,
-    #[value(name = "fxl")]
+    #[value(name = "flan-xl")]
     FlanT5XLarge,
 }
 
@@ -65,11 +65,11 @@ pub struct Args {
 
     /// Target model's repository path
     #[arg(short = 't', long, default_value = "3b")]
-    pub target_model_repo: WhichModel,
+    pub target_model_repo: WhichT5,
 
     /// Draft model's repository path
     #[arg(short = 'd', long, default_value = "small")]
-    pub draft_model_repo: WhichModel,
+    pub draft_model_repo: WhichT5,
 
     /// Gamma value for speculative sampling
     #[arg(short = 'g', long, default_value_t = 5)]
@@ -124,11 +124,11 @@ impl Args {
         info!("Prefix : {}", self.get_prefix().bold());
         info!(
             "Target model : {}",
-            Self::whichmodel_to_repo(self.target_model_repo).0.bold()
+            Self::which_t5_to_repo(self.target_model_repo).0.bold()
         );
         info!(
             "Draft model : {}",
-            Self::whichmodel_to_repo(self.draft_model_repo).0.bold()
+            Self::which_t5_to_repo(self.draft_model_repo).0.bold()
         );
         info!("Gamma : {}", self.gamma.to_string().bold());
         info!("Lenience : {}", format!("{:.3}", self.lenience).bold());
@@ -174,11 +174,11 @@ impl Args {
     }
 
     pub fn get_draft_repo(&self) -> (String, String) {
-        Self::whichmodel_to_repo(self.draft_model_repo)
+        Self::which_t5_to_repo(self.draft_model_repo)
     }
 
     pub fn get_target_repo(&self) -> (String, String) {
-        Self::whichmodel_to_repo(self.target_model_repo)
+        Self::which_t5_to_repo(self.target_model_repo)
     }
 
     pub fn get_model_args(&self) -> T5ModelArgs {
@@ -191,17 +191,17 @@ impl Args {
         }
     }
 
-    fn whichmodel_to_repo(which: WhichModel) -> (String, String) {
+    fn which_t5_to_repo(which: WhichT5) -> (String, String) {
         let res = match which {
-            WhichModel::T5Small => ("google-t5/t5-small", "main"),
-            WhichModel::T5Base => ("google-t5/t5-base", "main"),
-            WhichModel::T5Large => ("google-t5/t5-large", "main"),
-            WhichModel::T5_3B => ("google-t5/t5-3b", "main"),
-            WhichModel::T5_11B => ("google-t5/t5-11b", "refs/pr/6"),
-            WhichModel::FlanT5Small => ("google/flan-t5-small", "main"),
-            WhichModel::FlanT5Base => ("google/flan-t5-base", "main"),
-            WhichModel::FlanT5Large => ("google/flan-t5-large", "main"),
-            WhichModel::FlanT5XLarge => ("google/flan-t5-xl", "main"),
+            WhichT5::T5Small => ("google-t5/t5-small", "main"),
+            WhichT5::T5Base => ("google-t5/t5-base", "main"),
+            WhichT5::T5Large => ("google-t5/t5-large", "main"),
+            WhichT5::T5_3B => ("google-t5/t5-3b", "main"),
+            WhichT5::T5_11B => ("google-t5/t5-11b", "refs/pr/6"),
+            WhichT5::FlanT5Small => ("google/flan-t5-small", "main"),
+            WhichT5::FlanT5Base => ("google/flan-t5-base", "main"),
+            WhichT5::FlanT5Large => ("google/flan-t5-large", "main"),
+            WhichT5::FlanT5XLarge => ("google/flan-t5-xl", "main"),
         };
         (res.0.to_string(), res.1.to_string())
     }
