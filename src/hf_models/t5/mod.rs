@@ -12,7 +12,7 @@ use candle_nn::VarBuilder;
 use hf_hub::{api::sync::Api, Repo, RepoType};
 use rand::SeedableRng;
 use runner::T5Runner;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tokenizers::Tokenizer;
 
 pub struct T5ModelArgs {
@@ -31,7 +31,7 @@ pub struct T5Model {
     pub top_p: Option<f64>,
     pub seed: u64,
     pub repeat_penalty: f64,
-    pub runner: Arc<RwLock<T5Runner>>,
+    pub runner: T5Runner,
 }
 
 impl T5Model {
@@ -63,8 +63,7 @@ impl T5Model {
             )?
         };
         let rng = rand::rngs::StdRng::seed_from_u64(args.seed);
-        let runner =
-            Arc::new(RwLock::new(T5Runner::load(vb, &config, device.clone())?));
+        let runner = T5Runner::load(vb, &config, device.clone())?;
 
         Ok((
             Self {

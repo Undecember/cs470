@@ -10,37 +10,35 @@ pub fn sampling(
     max_tokens: usize,
 ) -> Result<TaskReport> {
     let mut report = TaskReport::new();
-    let mut output_tokens = [model
-        .config
-        .decoder_start_token_id
-        .unwrap_or(model.config.pad_token_id) as u32]
-    .to_vec();
+    report.output_tokens.push(
+        model
+            .config
+            .decoder_start_token_id
+            .unwrap_or(model.config.pad_token_id) as u32,
+    );
 
     let input_tokens = Tensor::new(tokens, &model.device)?.unsqueeze(0)?;
-    let mut runner_write = model.runner.write().unwrap();
-    runner_write.clear_kv_cache();
-    let encoder_output = runner_write.encode(&input_tokens)?;
-    drop(runner_write);
+    model.runner.clear_kv_cache();
+    let encoder_output = model.runner.encode(&input_tokens)?;
     for i in 0..max_tokens {
-        let span = report.start(runner_type, ActionType::ForwardKV, i);
-        let decoder_output = model.runner.write().unwrap().forward_kv_cache(
+        report.start(runner_type, ActionType::ForwardKV, i);
+        let decoder_output = model.runner.forward_kv_cache(
             i..i + 1,
             &encoder_output,
-            &output_tokens,
+            report.output_tokens.as_slice(),
         )?;
-        report.end(span);
-        let span = report.start(runner_type, ActionType::LogitsCalc, i);
-        let logits = model.runner.read().unwrap().get_logits(decoder_output)?;
-        report.end(span);
-        let span = report.start(runner_type, ActionType::Sampling, i);
-        let p = model.p_from_logits(&logits, 0, output_tokens.as_slice())?;
+        report.end();
+        report.start(runner_type, ActionType::LogitsCalc, i);
+        let logits = model.runner.get_logits(decoder_output)?;
+        report.end();
+        report.start(runner_type, ActionType::Sampling, i);
+        let p = model.p_from_logits(&logits, 0, report.output_tokens.as_slice())?;
         let next_token = model.sample_from_p(&p)?;
-        report.end(span);
+        report.end();
         if next_token as usize == model.config.eos_token_id {
             break;
         }
-        output_tokens.push(next_token);
+        report.output_tokens.push(next_token);
     }
-    report.set_output_tokens(output_tokens.as_slice());
     Ok(report)
 }

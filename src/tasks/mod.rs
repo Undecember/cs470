@@ -43,9 +43,7 @@ pub fn run_exp(
     let spec_report = speculative_sampling(
         draft_model,
         target_model,
-        args.gamma,
-        args.lenience,
-        args.k_skipping,
+        args,
         &tokens,
         args.max_tokens,
         None,
@@ -55,9 +53,7 @@ pub fn run_exp(
     let kl_report = speculative_sampling(
         draft_model,
         target_model,
-        args.gamma,
-        args.lenience,
-        args.k_skipping,
+        args,
         &tokens,
         args.max_tokens,
         Some(args.kl_epsilon),
