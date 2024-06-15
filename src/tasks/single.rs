@@ -19,6 +19,7 @@ pub fn sampling(
 
     let input_tokens = Tensor::new(tokens, &model.device)?.unsqueeze(0)?;
     model.runner.clear_kv_cache();
+    model.reset_rng();
     let encoder_output = model.runner.encode(&input_tokens)?;
     for i in 0..max_tokens {
         report.start(runner_type, ActionType::ForwardKV, i);

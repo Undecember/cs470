@@ -1,0 +1,3 @@
+[submodule "bert_score"]
+	path = bert_score
+	url = https://github.com/Tiiiger/bert_score

@@ -37,7 +37,7 @@ pub enum WhichPrefix {
     TranslateRomanian,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[group(required = true, multiple = false)]
 pub struct PromptArgs {
     /// Prompt
@@ -49,7 +49,7 @@ pub struct PromptArgs {
     pub prompt_file: Option<String>,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
     /// For quiet run
@@ -88,7 +88,7 @@ pub struct Args {
     pub max_tokens: usize,
 
     /// The temperature used to generate samples
-    #[arg(long, default_value_t = 1.0)]
+    #[arg(long, default_value_t = 1.)]
     pub temperature: f64,
 
     /// Random seed
@@ -112,7 +112,7 @@ pub struct Args {
     pub repeat_penalty: f64,
 
     /// Epsilon for smoothed KL divergence
-    #[arg(long, default_value_t = 0.001)]
+    #[arg(long, default_value_t = 3e-7)]
     pub kl_epsilon: f64,
 }
 
@@ -191,7 +191,7 @@ impl Args {
         }
     }
 
-    fn which_t5_to_repo(which: WhichT5) -> (String, String) {
+    pub fn which_t5_to_repo(which: WhichT5) -> (String, String) {
         let res = match which {
             WhichT5::T5Small => ("google-t5/t5-small", "main"),
             WhichT5::T5Base => ("google-t5/t5-base", "main"),

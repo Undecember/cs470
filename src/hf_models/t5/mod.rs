@@ -84,4 +84,12 @@ impl T5Model {
     pub fn reset_rng(&mut self) {
         self.rng = rand::rngs::StdRng::seed_from_u64(self.seed);
     }
+
+    pub fn set_model_args(&mut self, args: T5ModelArgs) {
+        self.reset_rng();
+        self.temperature = args.temperature;
+        self.top_p = args.top_p;
+        self.seed = args.seed;
+        self.repeat_penalty = args.repeat_penalty;
+    }
 }

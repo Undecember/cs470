@@ -27,10 +27,12 @@ pub fn sampling(
 
     let input_tokens = Tensor::new(tokens, &draft_model.device)?.unsqueeze(0)?;
     draft_model.runner.clear_kv_cache();
+    draft_model.reset_rng();
     let draft_encoder_output = draft_model.runner.encode(&input_tokens)?;
 
     let input_tokens = Tensor::new(tokens, &target_model.device)?.unsqueeze(0)?;
     target_model.runner.clear_kv_cache();
+    target_model.reset_rng();
     let target_encoder_output = target_model.runner.encode(&input_tokens)?;
 
     while report.output_tokens.len() < max_tokens {
