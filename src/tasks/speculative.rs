@@ -64,7 +64,6 @@ pub fn sampling(
             let next_token = draft_model.sample_from_p(&qs[j])?;
             report.end();
             if qs[j][next_token as usize] < args.early_reject_thr as f32 {
-                println!("early reject");
                 break;
             }
             report.output_tokens.push(next_token);

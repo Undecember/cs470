@@ -27,9 +27,11 @@ pub struct Config {
     pub target_model_repo: String,
     pub draft_model_repo: String,
     pub gamma: Vec<usize>,
+    pub adaptive_gamma: Vec<bool>,
     pub lenience: Vec<f64>,
     pub k_skipping: Vec<usize>,
     pub max_tokens: usize,
+    pub early_reject_thr: Vec<f64>,
     pub temperature: Vec<f64>,
     pub seed: u64,
     #[serde(default, deserialize_with = "deserialize_top_p")]
@@ -48,9 +50,11 @@ impl Default for Config {
             target_model_repo: "large".to_string(),
             draft_model_repo: "small".to_string(),
             gamma: vec![5],
+            adaptive_gamma: vec![false],
             lenience: vec![1.0],
             k_skipping: vec![1],
             max_tokens: 1000,
+            early_reject_thr: vec![0.0],
             temperature: vec![1.0],
             seed: 299792458,
             top_p: vec![None],
@@ -108,9 +112,11 @@ impl Config {
             config: &self,
             prompt: 0,
             gamma: 0,
+            adaptive_gamma: 0,
             lenience: 0,
             k_skipping: 0,
             temperature: 0,
+            early_reject_thr: 0,
             top_p: 0,
             kl_epsilon: 0,
             end: false,
@@ -119,22 +125,15 @@ impl Config {
     }
 }
 
-// impl Config {
-//     pub fn iter(&self) -> ConfigIter {
-//         ConfigIter {
-//             config: &self,
-//             curr: None,
-//         }
-//     }
-// }
-
 pub struct ConfigIter<'g> {
     config: &'g Config,
     prompt: usize,
     gamma: usize,
+    adaptive_gamma: usize,
     lenience: usize,
     k_skipping: usize,
     temperature: usize,
+    early_reject_thr: usize,
     top_p: usize,
     kl_epsilon: usize,
     end: bool,
@@ -164,10 +163,12 @@ impl<'g> Iterator for ConfigIter<'g> {
             )
             .unwrap(),
             gamma: self.config.gamma[self.gamma],
+            adaptive_gamma: self.config.adaptive_gamma[self.adaptive_gamma],
             lenience: self.config.lenience[self.lenience],
             k_skipping: self.config.k_skipping[self.k_skipping],
             max_tokens: self.config.max_tokens,
             temperature: self.config.temperature[self.temperature],
+            early_reject_thr: self.config.early_reject_thr[self.early_reject_thr],
             seed: self.config.seed,
             top_p: self.config.top_p[self.top_p],
             cpu: self.config.cpu,
@@ -190,11 +191,21 @@ impl<'g> Iterator for ConfigIter<'g> {
         inc(&mut flag, &mut self.prompt, &self.config.prompt_cnt);
         let need_init = flag;
         inc(&mut flag, &mut self.gamma, &self.config.gamma.len());
+        inc(
+            &mut flag,
+            &mut self.adaptive_gamma,
+            &self.config.adaptive_gamma.len(),
+        );
         inc(&mut flag, &mut self.lenience, &self.config.lenience.len());
         inc(
             &mut flag,
             &mut self.k_skipping,
             &self.config.k_skipping.len(),
+        );
+        inc(
+            &mut flag,
+            &mut self.early_reject_thr,
+            &self.config.early_reject_thr.len(),
         );
         inc(
             &mut flag,

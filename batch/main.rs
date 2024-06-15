@@ -21,9 +21,11 @@ fn main() -> Result<()> {
     csv.write_record(&[
         "id",
         "gamma",
+        "adaptive_gamma",
         "lenience",
         "k_skipping",
         "temperature",
+        "early_reject_thr",
         "top_p",
         "kl_epsilon",
         "draft_gen_text",
@@ -89,8 +91,10 @@ fn main() -> Result<()> {
         let mut result = Vec::with_capacity(14);
         result.push(progress_bar.position().to_string());
         result.push(args.gamma.to_string());
+        result.push(args.adaptive_gamma.to_string());
         result.push(args.lenience.to_string());
         result.push(args.k_skipping.to_string());
+        result.push(args.early_reject_thr.to_string());
         result.push(args.temperature.to_string());
         result.push(args.top_p.map_or("1.0".to_string(), |v| v.to_string()));
         result.push(args.kl_epsilon.to_string());
