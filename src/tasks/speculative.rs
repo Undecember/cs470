@@ -12,6 +12,7 @@ pub fn sampling(
     max_tokens: usize,
     kl_epsilon: Option<f64>,
 ) -> Result<TaskReport> {
+    let mut gamma = args.gamma;
     let mut report = TaskReport::new();
     report.output_tokens.push(
         target_model
@@ -40,7 +41,7 @@ pub fn sampling(
         // Draft
         let mut qs = Vec::new();
         let mut new_tokens = Vec::new();
-        for j in 0..args.gamma {
+        for j in 0..gamma {
             // ForwardKV
             report.start(RunnerType::Draft, ActionType::ForwardKV, i + j);
             let draft_decoder_output = draft_model.runner.forward_kv_cache(
@@ -62,6 +63,10 @@ pub fn sampling(
             )?);
             let next_token = draft_model.sample_from_p(&qs[j])?;
             report.end();
+            if qs[j][next_token as usize] < args.early_reject_thr as f32 {
+                println!("early reject");
+                break;
+            }
             report.output_tokens.push(next_token);
             new_tokens.push(next_token);
             if next_token == eos_token_id {
@@ -163,11 +168,17 @@ pub fn sampling(
                 report.output_tokens.as_slice(),
             )?;
             report.end();
+            if args.adaptive_gamma {
+                gamma += 1;
+            }
         }
         if accept_cnt + 1 < cur_gamma {
             draft_model
                 .runner
                 .rollback_kv_cache(cur_gamma - accept_cnt - 1)?;
+            if args.adaptive_gamma && gamma > 2 {
+                gamma -= 1;
+            }
         }
     }
     report.sort_timings();

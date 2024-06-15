@@ -75,13 +75,18 @@ pub struct Args {
     #[arg(short = 'g', long, default_value_t = 5)]
     pub gamma: usize,
 
-    /// Lenience
+    #[arg(long, default_value_t = false)]
+    pub adaptive_gamma: bool,
+
     #[arg(long, default_value_t = 1.)]
     pub lenience: f64,
 
-    /// K-skipping
     #[arg(long, default_value_t = 1)]
     pub k_skipping: usize,
+
+    /// Threshold value of early rejection
+    #[arg(long, default_value_t = 0.)]
+    pub early_reject_thr: f64,
 
     /// Maximum number of tokens to generate
     #[arg(short = 'n', long, default_value_t = 1000)]
@@ -107,7 +112,6 @@ pub struct Args {
     #[arg(long)]
     pub no_kv_cache: bool,
 
-    /// Repeat penalty
     #[arg(long, default_value_t = 1.1)]
     pub repeat_penalty: f64,
 
