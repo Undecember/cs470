@@ -139,11 +139,11 @@ pub fn sampling(
         };
         let new_token = target_model.sample_from_p(&p)?;
         report.end();
+        report.output_tokens.truncate(i + accept_cnt);
+        report.output_tokens.push(new_token);
         if new_token == eos_token_id {
             break;
         }
-        report.output_tokens.truncate(i + accept_cnt);
-        report.output_tokens.push(new_token);
         target_model
             .runner
             .rollback_kv_cache(cur_gamma - accept_cnt)?;
