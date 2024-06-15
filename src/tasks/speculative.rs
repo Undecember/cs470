@@ -82,7 +82,7 @@ pub fn sampling(
         let target_logitss =
             target_model.runner.get_logits(target_decoder_outputs)?;
         report.end();
-        let mut accept_cnt = 0;
+        let mut accept_cnt: usize = 0;
         for j in 0..cur_gamma {
             let p = target_model.p_from_logits(
                 &target_logitss,
@@ -95,14 +95,17 @@ pub fn sampling(
                     / qs[j][new_tokens[j] as usize]
                     / args.lenience as f32,
             );
-            if target_model.prob_test(accept_prob) || (i + j) % args.k_skipping > 0 {
-                accept_cnt += 1;
+            let skip = (i + j) % args.k_skipping > 0;
+            if target_model.prob_test(accept_prob) {
                 if let Some((kl_divs, _)) = report.kl_divs.as_mut() {
                     kl_divs.push(kl_div(
                         p.as_slice(),
                         qs[j].as_slice(),
                         kl_epsilon.unwrap(),
                     ));
+                }
+                if !skip || accept_cnt == j {
+                    accept_cnt = j + 1;
                 }
             } else {
                 if let Some((_, kl_divs)) = report.kl_divs.as_mut() {
@@ -112,7 +115,9 @@ pub fn sampling(
                         kl_epsilon.unwrap(),
                     ));
                 }
-                break;
+                if !skip {
+                    break;
+                }
             }
         }
         report
