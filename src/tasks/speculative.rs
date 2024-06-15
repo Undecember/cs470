@@ -41,6 +41,7 @@ pub fn sampling(
         // Draft
         let mut qs = Vec::new();
         let mut new_tokens = Vec::new();
+        let mut early_reject_index = gamma;
         for j in 0..gamma {
             // ForwardKV
             report.start(RunnerType::Draft, ActionType::ForwardKV, i + j);
@@ -63,11 +64,12 @@ pub fn sampling(
             )?);
             let next_token = draft_model.sample_from_p(&qs[j])?;
             report.end();
-            if qs[j][next_token as usize] < args.early_reject_thr as f32 {
-                break;
-            }
             report.output_tokens.push(next_token);
             new_tokens.push(next_token);
+            if qs[j][next_token as usize] < args.early_reject_thr as f32 {
+                early_reject_index = j;
+                break;
+            }
             if next_token == eos_token_id {
                 break;
             }
@@ -100,7 +102,7 @@ pub fn sampling(
                     / args.lenience as f32,
             );
             let skip = (i + j) % args.k_skipping > 0;
-            if target_model.prob_test(accept_prob) {
+            if target_model.prob_test(accept_prob) && j != early_reject_index {
                 if let Some((kl_divs, _)) = report.kl_divs.as_mut() {
                     kl_divs.push(kl_div(
                         p.as_slice(),
