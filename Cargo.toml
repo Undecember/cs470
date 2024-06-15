@@ -5,9 +5,9 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.86"
-candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.5.1", features = ["cuda"] }
-candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.5.1" }
-candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.5.1", features = ["cuda"] }
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.6.0", features = ["cuda"] }
+candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.6.0" }
+candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.6.0", features = ["cuda"] }
 clap = { version = "4.5.4", features = ["derive"] }
 colored = "2.1.0"
 crossbeam-epoch = "0.9.18"
