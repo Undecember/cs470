@@ -1,0 +1,20 @@
+{
+    "prompt_path": "prompts/cnndm/",
+    "prompt_cnt": 5,
+    "prefix": "summarize",
+    "target_model_repo": "3b",
+    "draft_model_repo": "small",
+    "gamma": [ 5 ],
+    "adaptive_gamma_theta": [ 0.9, 0.7 ],
+    "lenience": [ 1.0 ],
+    "sparse_validation": [ 1 ],
+    "max_tokens": 1000,
+    "early_reject_thr": [ 0.0 ],
+    "temperature": [ 1.0 ],
+    "seed": 299792458,
+    "top_p": [ 1.0 ],
+    "cpu": false,
+    "no_kv_cache": false,
+    "repeat_penalty": 1.1,
+    "kl_epsilon": [ 3e-7 ]
+}
