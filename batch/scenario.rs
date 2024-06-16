@@ -28,9 +28,9 @@ pub struct Config {
     pub target_model_repo: String,
     pub draft_model_repo: String,
     pub gamma: Vec<usize>,
-    pub adaptive_gamma: Vec<bool>,
+    pub adaptive_gamma_theta: Vec<f64>,
     pub lenience: Vec<f64>,
-    pub k_skipping: Vec<usize>,
+    pub sparse_validation: Vec<usize>,
     pub max_tokens: usize,
     pub early_reject_thr: Vec<f64>,
     pub temperature: Vec<f64>,
@@ -52,9 +52,9 @@ impl Default for Config {
             target_model_repo: "large".to_string(),
             draft_model_repo: "small".to_string(),
             gamma: vec![5],
-            adaptive_gamma: vec![false],
+            adaptive_gamma_theta: vec![1.],
             lenience: vec![1.0],
-            k_skipping: vec![1],
+            sparse_validation: vec![1],
             max_tokens: 1000,
             early_reject_thr: vec![0.0],
             temperature: vec![1.0],
@@ -100,7 +100,7 @@ impl Config {
         let mut total_steps = self.prompt_cnt;
         total_steps *= self.gamma.len()
             * self.lenience.len()
-            * self.k_skipping.len()
+            * self.sparse_validation.len()
             * self.temperature.len()
             * self.top_p.len()
             * self.kl_epsilon.len();
@@ -111,13 +111,13 @@ impl Config {
                 .progress_chars("#>-"),
         );
         let iter = ConfigIter {
-            config: &self,
+            config: self,
             need_init: true,
             prompt: 0,
             gamma: 0,
-            adaptive_gamma: 0,
+            adaptive_gamma_theta: 0,
             lenience: 0,
-            k_skipping: 0,
+            sparse_validation: 0,
             early_reject_thr: 0,
             temperature: 0,
             top_p: 0,
@@ -133,9 +133,9 @@ pub struct ConfigIter<'g> {
     need_init: bool,
     prompt: usize,
     gamma: usize,
-    adaptive_gamma: usize,
+    adaptive_gamma_theta: usize,
     lenience: usize,
-    k_skipping: usize,
+    sparse_validation: usize,
     early_reject_thr: usize,
     temperature: usize,
     top_p: usize,
@@ -170,9 +170,10 @@ impl<'g> Iterator for ConfigIter<'g> {
             )
             .unwrap(),
             gamma: self.config.gamma[self.gamma],
-            adaptive_gamma: self.config.adaptive_gamma[self.adaptive_gamma],
+            adaptive_gamma_theta: self.config.adaptive_gamma_theta
+                [self.adaptive_gamma_theta],
             lenience: self.config.lenience[self.lenience],
-            k_skipping: self.config.k_skipping[self.k_skipping],
+            sparse_validation: self.config.sparse_validation[self.sparse_validation],
             max_tokens: self.config.max_tokens,
             early_reject_thr: self.config.early_reject_thr[self.early_reject_thr],
             temperature: self.config.temperature[self.temperature],
@@ -201,14 +202,14 @@ impl<'g> Iterator for ConfigIter<'g> {
         inc(&mut flag, &mut self.gamma, &self.config.gamma.len());
         inc(
             &mut flag,
-            &mut self.adaptive_gamma,
-            &self.config.adaptive_gamma.len(),
+            &mut self.adaptive_gamma_theta,
+            &self.config.adaptive_gamma_theta.len(),
         );
         inc(&mut flag, &mut self.lenience, &self.config.lenience.len());
         inc(
             &mut flag,
-            &mut self.k_skipping,
-            &self.config.k_skipping.len(),
+            &mut self.sparse_validation,
+            &self.config.sparse_validation.len(),
         );
         inc(
             &mut flag,

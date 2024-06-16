@@ -13,6 +13,7 @@ pub fn sampling(
     kl_epsilon: Option<f64>,
 ) -> Result<TaskReport> {
     let mut gamma = args.gamma;
+    let mut gamma_f = gamma as f64;
     let mut report = TaskReport::new();
     report.output_tokens.push(
         target_model
@@ -117,7 +118,7 @@ pub fn sampling(
                     / qs[j][new_tokens[j] as usize]
                     / args.lenience as f32,
             );
-            let skip = (i + j) % args.k_skipping > 0;
+            let skip = (i + j) % args.sparse_validation > 0;
             if target_model.prob_test(accept_prob) && j != early_reject_index {
                 if let Some((kl_divs, _)) = report.kl_divs.as_mut() {
                     kl_divs.push(kl_div(
@@ -193,18 +194,16 @@ pub fn sampling(
                 report.output_tokens.as_slice(),
             )?;
             report.end();
-            if args.adaptive_gamma {
-                gamma += 1;
-            }
         }
         if accept_cnt + 1 < cur_gamma {
             draft_model
                 .runner
                 .rollback_kv_cache(cur_gamma - accept_cnt - 1)?;
-            if args.adaptive_gamma && gamma > 2 {
-                gamma -= 1;
-            }
         }
+        let alpha = accept_cnt as f64 / (cur_gamma + 1) as f64;
+        gamma_f = args.adaptive_gamma_theta * gamma_f
+            + (1_f64 - args.adaptive_gamma_theta) * (1_f64 / (1_f64 - alpha));
+        gamma = gamma_f.round() as usize;
     }
     report.sort_timings();
     Ok(report)

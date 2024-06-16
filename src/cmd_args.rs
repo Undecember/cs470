@@ -75,14 +75,15 @@ pub struct Args {
     #[arg(short = 'g', long, default_value_t = 5)]
     pub gamma: usize,
 
-    #[arg(long, default_value_t = false)]
-    pub adaptive_gamma: bool,
+    /// Theta value for adaptive gamma update
+    #[arg(long, default_value_t = 1.)]
+    pub adaptive_gamma_theta: f64,
 
     #[arg(long, default_value_t = 1.)]
     pub lenience: f64,
 
     #[arg(long, default_value_t = 1)]
-    pub k_skipping: usize,
+    pub sparse_validation: usize,
 
     /// Threshold value of early rejection
     #[arg(long, default_value_t = 0.)]
@@ -135,8 +136,15 @@ impl Args {
             Self::which_t5_to_repo(self.draft_model_repo).0.bold()
         );
         info!("Gamma : {}", self.gamma.to_string().bold());
+        info!(
+            "Theta (adaptive gamma) : {}",
+            self.adaptive_gamma_theta.to_string().bold()
+        );
         info!("Lenience : {}", format!("{:.3}", self.lenience).bold());
-        info!("K-skipping : {}", self.k_skipping.to_string().bold());
+        info!(
+            "Sparse validation : {}",
+            self.sparse_validation.to_string().bold()
+        );
         info!("Max tokens : {}", self.max_tokens.to_string().bold());
         info!(
             "Temperature : {}",

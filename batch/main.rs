@@ -12,9 +12,9 @@ use std::sync::Arc;
 const HEADERS: [&str; 25] = [
     "id",
     "gamma",
-    "adaptive_gamma",
+    "adaptive_gamma_theta",
     "lenience",
-    "k_skipping",
+    "sparse_validation",
     "temperature",
     "early_reject_thr",
     "top_p",
@@ -48,7 +48,7 @@ fn main() -> Result<()> {
     let mut csv = WriterBuilder::new()
         .delimiter(b'\t')
         .from_path((args.output.clone() + ".without_bert").as_str())?;
-    csv.write_record(&HEADERS)?;
+    csv.write_record(HEADERS)?;
 
     let device = if scenario_config.cpu {
         Device::Cpu
@@ -99,9 +99,9 @@ fn main() -> Result<()> {
         let mut result = Vec::with_capacity(14);
         result.push(progress_bar.position().to_string());
         result.push(args.gamma.to_string());
-        result.push(args.adaptive_gamma.to_string());
+        result.push(args.adaptive_gamma_theta.to_string());
         result.push(args.lenience.to_string());
-        result.push(args.k_skipping.to_string());
+        result.push(args.sparse_validation.to_string());
         result.push(args.temperature.to_string());
         result.push(args.early_reject_thr.to_string());
         result.push(args.top_p.map_or("1.0".to_string(), |v| v.to_string()));
@@ -144,18 +144,22 @@ fn main() -> Result<()> {
         .from_path(args.output.as_str())?;
 
     progress_bar.reset();
-    write.write_record(&HEADERS)?;
-    let lang = if scenario_config.prefix == "summarize" { "en" } else { "de" };
+    write.write_record(HEADERS)?;
+    let lang = if scenario_config.prefix == "summarize" {
+        "en"
+    } else {
+        "de"
+    };
     for result in read.records() {
         let record = result?;
         let mut record: Vec<String> =
             record.into_iter().map(|s| s.to_string()).collect();
-        record[22] =
-            get_bert_score(lang, record[9].as_str(), record[12].as_str())?.to_string();
-        record[23] =
-            get_bert_score(lang, record[9].as_str(), record[15].as_str())?.to_string();
-        record[24] =
-            get_bert_score(lang, record[12].as_str(), record[15].as_str())?.to_string();
+        record[22] = get_bert_score(lang, record[9].as_str(), record[12].as_str())?
+            .to_string();
+        record[23] = get_bert_score(lang, record[9].as_str(), record[15].as_str())?
+            .to_string();
+        record[24] = get_bert_score(lang, record[12].as_str(), record[15].as_str())?
+            .to_string();
         write.write_record(record)?;
         progress_bar.inc(1);
     }
