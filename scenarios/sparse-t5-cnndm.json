@@ -4,7 +4,7 @@
     "prefix": "summarize",
     "target_model_repo": "3b",
     "draft_model_repo": "small",
-    "gamma": [ 5 ],
+    "gamma": [ 10 ],
     "adaptive_gamma_theta": [ 1.0 ],
     "lenience": [ 1.0 ],
     "sparse_validation": [ 3, 5 ],
