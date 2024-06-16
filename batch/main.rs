@@ -145,16 +145,17 @@ fn main() -> Result<()> {
 
     progress_bar.reset();
     write.write_record(&HEADERS)?;
+    let lang = if scenario_config.prefix == "summarize" { "en" } else { "de" };
     for result in read.records() {
         let record = result?;
         let mut record: Vec<String> =
             record.into_iter().map(|s| s.to_string()).collect();
         record[22] =
-            get_bert_score(record[9].as_str(), record[12].as_str())?.to_string();
+            get_bert_score(lang, record[9].as_str(), record[12].as_str())?.to_string();
         record[23] =
-            get_bert_score(record[9].as_str(), record[15].as_str())?.to_string();
+            get_bert_score(lang, record[9].as_str(), record[15].as_str())?.to_string();
         record[24] =
-            get_bert_score(record[12].as_str(), record[15].as_str())?.to_string();
+            get_bert_score(lang, record[12].as_str(), record[15].as_str())?.to_string();
         write.write_record(record)?;
         progress_bar.inc(1);
     }
@@ -165,7 +166,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn get_bert_score(r: &str, c: &str) -> Result<f64> {
+fn get_bert_score(lang: &str, r: &str, c: &str) -> Result<f64> {
     use std::io::Write;
     std::fs::File::create("__r__")?.write_all(r.as_bytes())?;
     std::fs::File::create("__c__")?.write_all(c.as_bytes())?;
@@ -177,7 +178,7 @@ fn get_bert_score(r: &str, c: &str) -> Result<f64> {
         .arg("-c")
         .arg("__c__")
         .arg("--lang")
-        .arg("en")
+        .arg(lang)
         .arg("--use_fast_tokenizer")
         .stdout(std::process::Stdio::piped())
         .output()?;
