@@ -1,6 +1,6 @@
 {
     "prompt_path": "prompts/cnndm/",
-    "prompt_cnt": 50,
+    "prompt_cnt": 10,
     "prefix": "summarize",
     "target_model_repo": "flan-xl",
     "draft_model_repo": "flan-small",
