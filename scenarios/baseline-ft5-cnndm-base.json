@@ -1,9 +1,9 @@
 {
     "prompt_path": "prompts/cnndm/",
     "prompt_cnt": 10,
-    "prefix": "translate-german",
+    "prefix": "summarize",
     "target_model_repo": "flan-xl",
-    "draft_model_repo": "flan-large",
+    "draft_model_repo": "flan-base",
     "gamma": [ 5 ],
     "adaptive_gamma": [ false ],
     "lenience": [ 1.0 ],
