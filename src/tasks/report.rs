@@ -16,7 +16,7 @@ pub enum ActionType {
 
 #[derive(Clone, Debug)]
 pub struct TimingReportItem {
-    token_index: usize,
+    token_index: (usize, usize),
     runner_type: RunnerType,
     action_type: ActionType,
     time_range: (Instant, Instant),
@@ -49,7 +49,7 @@ impl TaskReport {
         &mut self,
         runner_type: RunnerType,
         action_type: ActionType,
-        token_index: usize,
+        token_index: (usize, usize),
     ) {
         self.timings_report.push(TimingReportItem {
             token_index,
@@ -99,7 +99,7 @@ impl TaskReport {
 
         let start_time = self.timings_report[0].time_range.0;
         for item in self.timings_report.iter() {
-            buf += format!("{} ", item.token_index).as_str();
+            buf += format!("{} {} ", item.token_index.0, item.token_index.1).as_str();
             buf += match item.runner_type {
                 RunnerType::Draft => "draft",
                 RunnerType::Target => "target",

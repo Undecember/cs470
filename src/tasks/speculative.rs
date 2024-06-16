@@ -44,7 +44,11 @@ pub fn sampling(
         let mut early_reject_index = gamma;
         for j in 0..gamma {
             // ForwardKV
-            report.start(RunnerType::Draft, ActionType::ForwardKV, i + j);
+            report.start(
+                RunnerType::Draft,
+                ActionType::ForwardKV,
+                (i + j, i + j + 1),
+            );
             let draft_decoder_output = draft_model.runner.forward_kv_cache(
                 i + j - 1..i + j,
                 &draft_encoder_output,
@@ -52,11 +56,15 @@ pub fn sampling(
             )?;
             report.end();
             // LogitsCalc
-            report.start(RunnerType::Draft, ActionType::LogitsCalc, i + j);
+            report.start(
+                RunnerType::Draft,
+                ActionType::LogitsCalc,
+                (i + j, i + j + 1),
+            );
             let logits = draft_model.runner.get_logits(draft_decoder_output)?;
             report.end();
             // Sampling
-            report.start(RunnerType::Draft, ActionType::Sampling, i + j);
+            report.start(RunnerType::Draft, ActionType::Sampling, (i + j, i + j + 1));
             qs.push(draft_model.p_from_logits(
                 &logits,
                 0,
@@ -76,7 +84,11 @@ pub fn sampling(
         }
         let cur_gamma = new_tokens.len();
         // Target (KV)
-        report.start(RunnerType::Target, ActionType::ForwardKV, i + cur_gamma);
+        report.start(
+            RunnerType::Target,
+            ActionType::ForwardKV,
+            (i, i + cur_gamma + 1),
+        );
         let target_decoder_outputs = target_model.runner.forward_kv_cache(
             i - 1..i + cur_gamma,
             &target_encoder_output,
@@ -84,7 +96,11 @@ pub fn sampling(
         )?;
         report.end();
         // Target (LogitsCalc)
-        report.start(RunnerType::Target, ActionType::LogitsCalc, i + cur_gamma);
+        report.start(
+            RunnerType::Target,
+            ActionType::LogitsCalc,
+            (i, i + cur_gamma + 1),
+        );
         let target_logitss =
             target_model.runner.get_logits(target_decoder_outputs)?;
         report.end();
@@ -134,7 +150,11 @@ pub fn sampling(
         if report.output_tokens[i + accept_cnt - 1] == eos_token_id {
             break;
         }
-        report.start(RunnerType::Target, ActionType::Sampling, i + accept_cnt);
+        report.start(
+            RunnerType::Target,
+            ActionType::Sampling,
+            (i + accept_cnt, i + accept_cnt + 1),
+        );
         let p = target_model.p_from_logits(
             &target_logitss,
             accept_cnt,
@@ -162,7 +182,11 @@ pub fn sampling(
             .rollback_kv_cache(cur_gamma - accept_cnt)?;
         if accept_cnt == cur_gamma {
             // ForwardKV
-            report.start(RunnerType::Draft, ActionType::ForwardKV, i + accept_cnt);
+            report.start(
+                RunnerType::Draft,
+                ActionType::ForwardKV,
+                (i + accept_cnt, i + accept_cnt + 1),
+            );
             draft_model.runner.forward_kv_cache(
                 i + accept_cnt - 1..i + accept_cnt,
                 &draft_encoder_output,
