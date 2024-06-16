@@ -19,19 +19,20 @@ pub fn sampling(
 
     let input_tokens = Tensor::new(tokens, &model.device)?.unsqueeze(0)?;
     model.runner.clear_kv_cache();
+    model.reset_rng();
     let encoder_output = model.runner.encode(&input_tokens)?;
     for i in 0..max_tokens {
-        report.start(runner_type, ActionType::ForwardKV, i);
+        report.start(runner_type, ActionType::ForwardKV, (i, i + 1));
         let decoder_output = model.runner.forward_kv_cache(
             i..i + 1,
             &encoder_output,
             report.output_tokens.as_slice(),
         )?;
         report.end();
-        report.start(runner_type, ActionType::LogitsCalc, i);
+        report.start(runner_type, ActionType::LogitsCalc, (i, i + 1));
         let logits = model.runner.get_logits(decoder_output)?;
         report.end();
-        report.start(runner_type, ActionType::Sampling, i);
+        report.start(runner_type, ActionType::Sampling, (i, i + 1));
         let p = model.p_from_logits(&logits, 0, report.output_tokens.as_slice())?;
         let next_token = model.sample_from_p(&p)?;
         report.end();

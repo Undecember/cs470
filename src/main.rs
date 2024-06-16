@@ -18,7 +18,7 @@ fn main() -> Result<()> {
     let device = if args.cpu {
         Device::Cpu
     } else {
-        Device::new_cuda(0).map_err(E::msg)?
+        Device::new_cuda(0)?
     };
     let device = Arc::new(device);
 
@@ -53,8 +53,6 @@ fn main() -> Result<()> {
     )?;
     let (reports, kl_divs) = (reports.task_reports, reports.kl_divs);
 
-    let mut result_texts = Vec::new();
-
     for (report, (title, filename)) in reports.iter().zip([
         ("Draft only", "draft.timings"),
         ("Target only", "target.timings"),
@@ -70,15 +68,10 @@ fn main() -> Result<()> {
         if let Some(rate) = report.acceptance_rate() {
             info!("Acceptance rate : {:.3}", rate);
         }
-        result_texts.push(
-            tokenizer
-                .decode(&report.output_tokens, true)
-                .map_err(E::msg)?,
-        );
-        info!(
-            "Generated text : {}\n",
-            (*result_texts.last().unwrap()).cyan()
-        );
+        let result_text = tokenizer
+            .decode(&report.output_tokens, true)
+            .map_err(E::msg)?;
+        info!("Generated text : {}\n", (result_text).cyan());
         report.export_timings(filename)?;
     }
     info!("[ {} ]", "Statistics".bold());

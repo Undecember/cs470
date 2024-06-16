@@ -37,7 +37,7 @@ pub enum WhichPrefix {
     TranslateRomanian,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[group(required = true, multiple = false)]
 pub struct PromptArgs {
     /// Prompt
@@ -49,7 +49,7 @@ pub struct PromptArgs {
     pub prompt_file: Option<String>,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
     /// For quiet run
@@ -75,20 +75,26 @@ pub struct Args {
     #[arg(short = 'g', long, default_value_t = 5)]
     pub gamma: usize,
 
-    /// Lenience
+    /// Theta value for adaptive gamma update
+    #[arg(long, default_value_t = 1.)]
+    pub adaptive_gamma_theta: f64,
+
     #[arg(long, default_value_t = 1.)]
     pub lenience: f64,
 
-    /// K-skipping
     #[arg(long, default_value_t = 1)]
-    pub k_skipping: usize,
+    pub sparse_validation: usize,
+
+    /// Threshold value of early rejection
+    #[arg(long, default_value_t = 0.)]
+    pub early_reject_thr: f64,
 
     /// Maximum number of tokens to generate
     #[arg(short = 'n', long, default_value_t = 1000)]
     pub max_tokens: usize,
 
     /// The temperature used to generate samples
-    #[arg(long, default_value_t = 1.0)]
+    #[arg(long, default_value_t = 1.)]
     pub temperature: f64,
 
     /// Random seed
@@ -107,12 +113,11 @@ pub struct Args {
     #[arg(long)]
     pub no_kv_cache: bool,
 
-    /// Repeat penalty
     #[arg(long, default_value_t = 1.1)]
     pub repeat_penalty: f64,
 
     /// Epsilon for smoothed KL divergence
-    #[arg(long, default_value_t = 0.001)]
+    #[arg(long, default_value_t = 3e-7)]
     pub kl_epsilon: f64,
 }
 
@@ -131,8 +136,15 @@ impl Args {
             Self::which_t5_to_repo(self.draft_model_repo).0.bold()
         );
         info!("Gamma : {}", self.gamma.to_string().bold());
+        info!(
+            "Theta (adaptive gamma) : {}",
+            self.adaptive_gamma_theta.to_string().bold()
+        );
         info!("Lenience : {}", format!("{:.3}", self.lenience).bold());
-        info!("K-skipping : {}", self.k_skipping.to_string().bold());
+        info!(
+            "Sparse validation : {}",
+            self.sparse_validation.to_string().bold()
+        );
         info!("Max tokens : {}", self.max_tokens.to_string().bold());
         info!(
             "Temperature : {}",
@@ -191,7 +203,7 @@ impl Args {
         }
     }
 
-    fn which_t5_to_repo(which: WhichT5) -> (String, String) {
+    pub fn which_t5_to_repo(which: WhichT5) -> (String, String) {
         let res = match which {
             WhichT5::T5Small => ("google-t5/t5-small", "main"),
             WhichT5::T5Base => ("google-t5/t5-base", "main"),
