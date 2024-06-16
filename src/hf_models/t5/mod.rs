@@ -16,6 +16,7 @@ use runner::T5Runner;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
 
+#[derive(Debug)]
 pub struct T5ModelArgs {
     pub temperature: f64,
     pub seed: u64,

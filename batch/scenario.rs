@@ -22,6 +22,7 @@ where
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Config {
+    pub prompt_path: String,
     pub prompt_cnt: usize,
     pub prefix: String,
     pub target_model_repo: String,
@@ -45,6 +46,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            prompt_path: "".to_string(),
             prompt_cnt: 10,
             prefix: "summarize".to_string(),
             target_model_repo: "large".to_string(),
@@ -110,13 +112,14 @@ impl Config {
         );
         let iter = ConfigIter {
             config: &self,
+            need_init: true,
             prompt: 0,
             gamma: 0,
             adaptive_gamma: 0,
             lenience: 0,
             k_skipping: 0,
-            temperature: 0,
             early_reject_thr: 0,
+            temperature: 0,
             top_p: 0,
             kl_epsilon: 0,
             end: false,
@@ -127,13 +130,14 @@ impl Config {
 
 pub struct ConfigIter<'g> {
     config: &'g Config,
+    need_init: bool,
     prompt: usize,
     gamma: usize,
     adaptive_gamma: usize,
     lenience: usize,
     k_skipping: usize,
-    temperature: usize,
     early_reject_thr: usize,
+    temperature: usize,
     top_p: usize,
     kl_epsilon: usize,
     end: bool,
@@ -149,7 +153,10 @@ impl<'g> Iterator for ConfigIter<'g> {
             quiet: true,
             prompt_group: PromptArgs {
                 prompt: None,
-                prompt_file: Some(format!("prompts/{}.txt", self.prompt)),
+                prompt_file: Some(format!(
+                    "{}{}.txt",
+                    self.config.prompt_path, self.prompt
+                )),
             },
             prefix: WhichPrefix::from_str(self.config.prefix.as_str(), true).unwrap(),
             target_model_repo: WhichT5::from_str(
@@ -167,8 +174,8 @@ impl<'g> Iterator for ConfigIter<'g> {
             lenience: self.config.lenience[self.lenience],
             k_skipping: self.config.k_skipping[self.k_skipping],
             max_tokens: self.config.max_tokens,
-            temperature: self.config.temperature[self.temperature],
             early_reject_thr: self.config.early_reject_thr[self.early_reject_thr],
+            temperature: self.config.temperature[self.temperature],
             seed: self.config.seed,
             top_p: self.config.top_p[self.top_p],
             cpu: self.config.cpu,
@@ -189,7 +196,8 @@ impl<'g> Iterator for ConfigIter<'g> {
         };
         let mut flag = true;
         inc(&mut flag, &mut self.prompt, &self.config.prompt_cnt);
-        let need_init = flag;
+        let need_init = self.need_init;
+        self.need_init = flag;
         inc(&mut flag, &mut self.gamma, &self.config.gamma.len());
         inc(
             &mut flag,
@@ -204,13 +212,13 @@ impl<'g> Iterator for ConfigIter<'g> {
         );
         inc(
             &mut flag,
-            &mut self.early_reject_thr,
-            &self.config.early_reject_thr.len(),
+            &mut self.temperature,
+            &self.config.temperature.len(),
         );
         inc(
             &mut flag,
-            &mut self.temperature,
-            &self.config.temperature.len(),
+            &mut self.early_reject_thr,
+            &self.config.early_reject_thr.len(),
         );
         inc(&mut flag, &mut self.top_p, &self.config.top_p.len());
         inc(

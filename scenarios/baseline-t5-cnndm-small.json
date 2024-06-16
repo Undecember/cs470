@@ -1,6 +1,6 @@
 {
     "prompt_path": "prompts/cnndm/",
-    "prompt_cnt": 1000,
+    "prompt_cnt": 50,
     "prefix": "summarize",
     "target_model_repo": "flan-xl",
     "draft_model_repo": "flan-small",
@@ -10,7 +10,7 @@
     "k_skipping": [ 1 ],
     "max_tokens": 1000,
     "early_reject_thr": [ 0.0 ],
-    "temperature": [ 1.0 ],
+    "temperature": [ 0.001, 1.0 ],
     "seed": 299792458,
     "top_p": [ 1.0 ],
     "cpu": false,

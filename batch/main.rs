@@ -74,6 +74,7 @@ fn main() -> Result<()> {
 
     for (args, need_init) in iter {
         if need_init {
+            println!("{:?}", args.get_model_args());
             draft_model.set_model_args(args.get_model_args());
             target_model.set_model_args(args.get_model_args());
         }
@@ -101,8 +102,8 @@ fn main() -> Result<()> {
         result.push(args.adaptive_gamma.to_string());
         result.push(args.lenience.to_string());
         result.push(args.k_skipping.to_string());
-        result.push(args.early_reject_thr.to_string());
         result.push(args.temperature.to_string());
+        result.push(args.early_reject_thr.to_string());
         result.push(args.top_p.map_or("1.0".to_string(), |v| v.to_string()));
         result.push(args.kl_epsilon.to_string());
 
