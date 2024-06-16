@@ -99,8 +99,10 @@ impl Config {
     pub fn iter(&self) -> Result<(ProgressBar, ConfigIter)> {
         let mut total_steps = self.prompt_cnt;
         total_steps *= self.gamma.len()
+            * self.adaptive_gamma_theta.len()
             * self.lenience.len()
             * self.sparse_validation.len()
+            * self.early_reject_thr.len()
             * self.temperature.len()
             * self.top_p.len()
             * self.kl_epsilon.len();
