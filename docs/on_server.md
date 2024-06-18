@@ -8,8 +8,18 @@ Everything is installed in cs470 team server.
 cs470 --help
 ```
 
-To use suggested input prompts:
 ```bash
-cs470 --prompt-file suggests/{input-you-want}.txt
+cs470-batch --help
 ```
-List of the suggested input prompts is [here](suggests/):
+
+Example usage:
+
+```bash
+cs470 --prompt-file prompts/cnndm/{input-you-want}.txt
+```
+List of the suggested input prompts is [here](../prompts/).
+
+```bash
+cs470-batch --prompt-file scenarios/{input-you-want}.txt
+```
+List of the suggested batch test scenarios is [here](../scenarios/).

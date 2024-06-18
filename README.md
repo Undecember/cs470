@@ -38,7 +38,11 @@ cargo build --release
 ## Usage
 
 ```bash
-./target/release/cs470 --help
+cargo run --release --bin cs470 -- --help
 ```
+You can find input prompts [here](prompts/).
 
-You can find Suggested input prompts [here](suggests/).
+```bash
+cargo run --release --bin cs470-batch -- --help
+```
+You can find batch test scenarios is [here](../scenarios/):
